@@ -29,5 +29,6 @@ code/Properties/*
 Exports/
 
 # Auto-generated Haxe files
-.haxe
+.haxe/extern
 code/haxe
+build.hxml

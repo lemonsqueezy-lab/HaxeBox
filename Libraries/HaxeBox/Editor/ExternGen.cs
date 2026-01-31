@@ -5,10 +5,12 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Xml.Linq;
 using Editor;
 using Sandbox;
 
-class ExternGen {
+class ExternGen
+{
     private static Dictionary<string, int> GENERIC_ARITY = new(StringComparer.Ordinal);
 
     public static string GenerateFromRuntime(string outRoot)
@@ -21,15 +23,40 @@ class ExternGen {
         EnsureSandboxAssembliesLoaded();
         var types = CollectSandboxTypes();
 
+        // ---- docs (best-effort) ----
+        var doc = new DocProvider(types.Select(t => t.Assembly).Distinct());
+
+        // ---- generic arity map ----
         GENERIC_ARITY = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var t in types)
         {
             var fn = t.FullName ?? t.Name;
             if (string.IsNullOrWhiteSpace(fn)) continue;
 
+            // 1) from `N
+            if (TryGetArityFromTick(fn, out var tickN))
+            {
+                var noTick = StripTick(fn);
+                // keep both keys: with and without `N (TypeToCsName() uses with `N)
+                GENERIC_ARITY[fn] = tickN;
+                GENERIC_ARITY[noTick] = tickN;
+            }
+
+            // 2) from <...> (rare for reflection FullName, but keep)
             var sp = SplitGenericType(fn);
             if (sp.Args.Count > 0)
+            {
                 GENERIC_ARITY[sp.Base] = sp.Args.Count;
+                GENERIC_ARITY[StripTick(sp.Base)] = sp.Args.Count;
+            }
+
+            // 3) from real definition
+            if (t.IsGenericTypeDefinition)
+            {
+                var n = t.GetGenericArguments().Length;
+                GENERIC_ARITY[fn] = n;
+                GENERIC_ARITY[StripTick(fn)] = n;
+            }
         }
 
         int typeCount = 0;
@@ -56,7 +83,7 @@ class ExternGen {
             var hxPackage = pkgInfo.Pkg;
             var relDir = pkgInfo.RelDir;
 
-            var hxTypeName = SanitizeTypeName(SimpleName(full));
+            var hxTypeName = HxTypeNameFromCs(full);
             var typeOutDir = string.IsNullOrEmpty(relDir) ? outRoot : Join(outRoot, relDir);
             EnsureDir(typeOutDir);
 
@@ -65,9 +92,17 @@ class ExternGen {
 
             var sb = new StringBuilder();
             sb.Append("package ").Append(hxPackage).Append(";\n\n");
+            sb.Append("// EXTERNGEN_MARK: v2026-01-31\n");
+            sb.Append("// EXTERNGEN_DLL: ").Append(Assembly.GetExecutingAssembly().Location.Replace("\\", "/")).Append("\n\n");
+
+            var tDoc = doc.GetTypeSummary(t);
+            if (!string.IsNullOrWhiteSpace(tDoc))
+                sb.Append("/** ").Append(EscDoc(tDoc)).Append(" */\n");
+
             sb.Append("@:native(\"").Append(Esc(full)).Append("\")\n");
             sb.Append("extern class ").Append(hxTypeName).Append(tgenPart).Append(" {\n");
 
+            // ---- ctors ----
             var ctors = t.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
             if (ctors.Length > 0)
             {
@@ -91,12 +126,13 @@ class ExternGen {
                 {
                     var ov = allOver ? "overload " : "";
                     sb.Append("  ").Append(ov)
-                      .Append("function new(").Append(FmtPars(it.Ps, Array.Empty<string>()))
+                      .Append("function new(").Append(FmtPars(it.Ps))
                       .Append("):Void;\n");
                     memberCount++;
                 }
             }
 
+            // ---- props ----
             var props = t.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
             foreach (var p in props)
             {
@@ -121,12 +157,17 @@ class ExternGen {
                         : (hasGet) ? "get,never"
                         : "never,set";
 
+                var pDoc = doc.GetPropertySummary(p);
+                if (!string.IsNullOrWhiteSpace(pDoc))
+                    sb.Append("  /** ").Append(EscDoc(pDoc)).Append(" */\n");
+
                 sb.Append("  var ").Append(SanitizeMemberName(name))
                   .Append("(").Append(acc).Append("):")
                   .Append(MapType(TypeToCsName(p.PropertyType))).Append(";\n");
                 memberCount++;
             }
 
+            // ---- methods ----
             var methods = new List<RuntimeMethod>();
             var ms = t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
             foreach (var m in ms)
@@ -143,24 +184,19 @@ class ExternGen {
                 if (string.IsNullOrWhiteSpace(name)) continue;
                 if (IsBadMemberName(name)) continue;
 
-                var ret = TypeToCsName(m.ReturnType);
-                var isStatic = m.IsStatic;
-                var ps = m.GetParameters();
-
                 methods.Add(new RuntimeMethod
                 {
+                    Info = m,
                     Name = name,
-                    ReturnType = ret,
-                    IsStatic = isStatic,
+                    ReturnType = TypeToCsName(m.ReturnType),
+                    IsStatic = m.IsStatic,
                     IsProtected = isProtected,
-                    Parameters = ps,
-                    Summary = ""
+                    Parameters = m.GetParameters()
                 });
             }
 
             if (methods.Count > 0)
             {
-
                 var byName = new Dictionary<string, List<RuntimeMethod>>(StringComparer.Ordinal);
                 foreach (var m in methods)
                 {
@@ -206,6 +242,11 @@ class ExternGen {
                     foreach (var mm in uniqArr)
                     {
                         var gen = CollectGenericParams(mm);
+
+                        var mDoc = doc.GetMethodSummary(mm.Info);
+                        if (!string.IsNullOrWhiteSpace(mDoc))
+                            sb.Append("  /** ").Append(EscDoc(mDoc)).Append(" */\n");
+
                         WriteMethodLine(sb, mm, gen, allOverloads);
                         memberCount++;
                     }
@@ -221,99 +262,153 @@ class ExternGen {
         return $"Externs generated:\n{outRoot}\n\nTypes: {typeCount}\nMembers: {memberCount}";
     }
 
-    private static void EnsureSandboxAssembliesLoaded()
+    // ----------------- FIX #2: @:protected inline -----------------
+    private static void WriteMethodLine(StringBuilder sb, RuntimeMethod m, List<string> gen, bool asOverload)
     {
+        var st = m.IsStatic ? "static " : "";
+        var ov = asOverload ? "overload " : "";
+        var genPart = gen.Count > 0 ? "<" + string.Join(",", gen) + ">" : "";
 
-        var candidates = new[]
-        {
-            "Sandbox.System",
-            "Sandbox.Engine",
-            "Sandbox.Reflection"
-        };
-
-        foreach (var n in candidates)
-        {
-            try
-            {
-                if (!AppDomain.CurrentDomain.GetAssemblies().Any(a => (a.GetName().Name ?? "") == n))
-                    Assembly.Load(new AssemblyName(n));
-            }
-            catch {  }
-        }
-
-        foreach (var a in AppDomain.CurrentDomain.GetAssemblies().ToArray())
-        {
-            AssemblyName[] refs;
-            try { refs = a.GetReferencedAssemblies(); } catch { continue; }
-
-            foreach (var r in refs)
-            {
-                var rn = r.Name ?? "";
-                if (!rn.StartsWith("Sandbox", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                try
-                {
-                    if (!AppDomain.CurrentDomain.GetAssemblies().Any(x => (x.GetName().Name ?? "") == rn))
-                        Assembly.Load(r);
-                }
-                catch {  }
-            }
-        }
-    }
-
-    private static List<Type> CollectSandboxTypes()
-    {
-        var list = new List<Type>();
-
-        foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            var an = a.GetName().Name ?? "";
-            if (!an.StartsWith("Sandbox.", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            Type[] ts;
-            try { ts = a.GetTypes(); }
-            catch (ReflectionTypeLoadException ex) { ts = ex.Types.Where(x => x != null).ToArray()!; }
-            catch { continue; }
-
-            foreach (var t in ts)
-            {
-                if (t == null) continue;
-                if (t.FullName == null) continue;
-                if (t.IsPointer) continue;
-
-                if (IsCompilerGeneratedType(t)) continue;
-
-                var ns = t.Namespace ?? "";
-                bool ok =
-                    ns == "Sandbox" ||
-                    ns.StartsWith("Sandbox.", StringComparison.Ordinal) ||
-                    ns == "";
-
-                if (!ok) continue;
-
-                if (!(t.IsPublic || t.IsNestedPublic))
-                    continue;
-
-                list.Add(t);
-            }
-        }
-
-        return list
-            .GroupBy(t => t.FullName!, StringComparer.Ordinal)
-            .Select(g => g.First())
-            .ToList();
+        sb.Append("  ");
+        if (m.IsProtected) sb.Append("@:protected ");
+        sb.Append(st).Append(ov)
+          .Append("function ").Append(SanitizeMemberName(m.Name)).Append(genPart)
+          .Append("(").Append(FmtPars(m.Parameters))
+          .Append("):").Append(MapType(m.ReturnType)).Append(";\n");
     }
 
     private sealed class RuntimeMethod
     {
+        public MethodInfo Info = null!;
         public string Name = "";
         public string ReturnType = "";
         public bool IsStatic;
         public bool IsProtected;
         public ParameterInfo[] Parameters = Array.Empty<ParameterInfo>();
-        public string Summary = "";
+    }
+
+    // ----------------- FIX #1: generic arity robust -----------------
+    private static string MapType(string cs)
+    {
+        cs = (cs ?? "").Trim();
+
+        switch (cs)
+        {
+            case "":
+                return "Dynamic";
+            case "Dynamic":
+            case "Void":
+            case "Int":
+            case "UInt":
+            case "Float":
+            case "Bool":
+            case "String":
+                return cs;
+        }
+
+        var sp = SplitGenericType(cs);
+        var @base = sp.Base;
+        var args = sp.Args;
+
+        // If no <...> but base is generic definition or we know its arity -> fill Dynamic params
+        if (args.Count == 0)
+        {
+            var normBase = StripTickPreserveNested(@base);
+
+            if (TryGetArityFromTick(@base, out var n) ||
+                GENERIC_ARITY.TryGetValue(@base, out n) ||
+                GENERIC_ARITY.TryGetValue(normBase, out n))
+            {
+                args = new List<string>();
+                for (int i = 0; i < n; i++)
+                    args.Add("Dynamic");
+            }
+        }
+
+        if (IsGenericParamName(@base))
+            return @base;
+
+        var sr = SimpleName(@base);
+        if (IsGenericParamName(sr))
+            return sr;
+
+        if (@base.EndsWith("[]", StringComparison.Ordinal))
+        {
+            var inner = @base.Substring(0, @base.Length - 2);
+            return "Array<" + MapType(inner) + ">";
+        }
+
+        if (cs.StartsWith("System.Nullable`1<", StringComparison.Ordinal) && cs.EndsWith(">", StringComparison.Ordinal))
+        {
+            var inner = (args.Count > 0) ? args[0] : "System.Object";
+            return "Null<" + MapType(inner) + ">";
+        }
+
+        switch (StripTickPreserveNested(@base))
+        {
+            case "System.Void": return "Void";
+            case "System.Boolean": return "Bool";
+            case "System.String": return "String";
+            case "System.Single":
+            case "System.Double":
+            case "System.Decimal":
+                return "Float";
+            case "System.Int16":
+            case "System.UInt16":
+            case "System.Int32":
+            case "System.Byte":
+            case "System.SByte":
+                return "Int";
+            case "System.UInt32":
+                return "UInt";
+            case "System.Int64":
+                return "haxe.Int64";
+            case "System.Object":
+                return "Dynamic";
+        }
+
+        var mappedBase = MapNonSystem(@base);
+
+        if (args.Count > 0)
+        {
+            if (mappedBase == "Dynamic") return "Dynamic";
+            var mappedArgs = string.Join(",", args.Select(MapType));
+            return mappedBase + "<" + mappedArgs + ">";
+        }
+
+        return mappedBase;
+    }
+
+    private static bool TryGetArityFromTick(string s, out int n)
+    {
+        n = 0;
+        if (string.IsNullOrWhiteSpace(s)) return false;
+
+        int tick = s.IndexOf('`');
+        if (tick < 0 || tick + 1 >= s.Length) return false;
+
+        int i = tick + 1;
+        int val = 0;
+        bool any = false;
+        while (i < s.Length)
+        {
+            char c = s[i];
+            if (c < '0' || c > '9') break;
+            any = true;
+            val = (val * 10) + (c - '0');
+            i++;
+        }
+
+        if (!any || val <= 0) return false;
+        n = val;
+        return true;
+    }
+
+    private static string StripTick(string s)
+    {
+        s = (s ?? "").Trim();
+        int tick = s.IndexOf('`');
+        return tick >= 0 ? s.Substring(0, tick) : s;
     }
 
     private static string NormTypeForKey(string t)
@@ -322,21 +417,6 @@ class ExternGen {
         if (t.StartsWith("Null<", StringComparison.Ordinal) && t.EndsWith(">", StringComparison.Ordinal))
             return t.Substring(5, t.Length - 6).Trim();
         return t;
-    }
-
-    private static void WriteMethodLine(StringBuilder sb, RuntimeMethod m, List<string> gen, bool asOverload)
-    {
-        if (m.IsProtected)
-            sb.Append("  @:protected\n");
-
-        var st = m.IsStatic ? "static " : "";
-        var ov = asOverload ? "overload " : "";
-        var genPart = gen.Count > 0 ? "<" + string.Join(",", gen) + ">" : "";
-
-        sb.Append("  ").Append(st).Append(ov)
-          .Append("function ").Append(SanitizeMemberName(m.Name)).Append(genPart)
-          .Append("(").Append(FmtPars(m.Parameters, gen))
-          .Append("):").Append(MapType(m.ReturnType)).Append(";\n");
     }
 
     private static string SignatureKey(RuntimeMethod m, List<string> gen)
@@ -350,6 +430,12 @@ class ExternGen {
     private static List<string> CollectGenericParams(RuntimeMethod m)
     {
         var set = new HashSet<string>(StringComparer.Ordinal);
+
+        // method generic parameters (best-effort)
+        if (m.Info.IsGenericMethodDefinition)
+            foreach (var ga in m.Info.GetGenericArguments())
+                if (IsGenericParamName(ga.Name)) set.Add(ga.Name);
+
         AddGenericParamsFromType(set, m.ReturnType);
         foreach (var p in m.Parameters)
             AddGenericParamsFromType(set, TypeToCsName(p.ParameterType));
@@ -486,95 +572,9 @@ class ExternGen {
         return outList;
     }
 
-    private static string MapType(string cs)
-    {
-        cs = (cs ?? "").Trim();
-
-        switch (cs)
-        {
-            case "":
-                return "Dynamic";
-            case "Dynamic":
-            case "Void":
-            case "Int":
-            case "UInt":
-            case "Float":
-            case "Bool":
-            case "String":
-                return cs;
-        }
-
-        var sp = SplitGenericType(cs);
-        var @base = sp.Base;
-        var args = sp.Args;
-
-        if (args.Count == 0 && GENERIC_ARITY.TryGetValue(@base, out var n))
-        {
-            args = new List<string>();
-            for (int i = 0; i < n; i++)
-                args.Add("Dynamic");
-        }
-
-        if (IsGenericParamName(@base))
-            return @base;
-
-        var sr = SimpleName(@base);
-        if (IsGenericParamName(sr))
-            return sr;
-
-        if (@base.EndsWith("[]", StringComparison.Ordinal))
-        {
-            var inner = @base.Substring(0, @base.Length - 2);
-            return "Array<" + MapType(inner) + ">";
-        }
-
-        if (cs.StartsWith("System.Nullable`1<", StringComparison.Ordinal) && cs.EndsWith(">", StringComparison.Ordinal))
-        {
-            var inner = (args.Count > 0) ? args[0] : "System.Object";
-            return "Null<" + MapType(inner) + ">";
-        }
-
-        switch (@base)
-        {
-            case "System.Void": return "Void";
-            case "System.Boolean": return "Bool";
-            case "System.String": return "String";
-            case "System.Single":
-            case "System.Double":
-            case "System.Decimal":
-                return "Float";
-            case "System.Int16":
-            case "System.UInt16":
-            case "System.Int32":
-            case "System.Byte":
-            case "System.SByte":
-                return "Int";
-            case "System.UInt32":
-                return "UInt";
-            case "System.Int64":
-                return "haxe.Int64";
-            case "System.Object":
-                return "Dynamic";
-        }
-
-        var mappedBase = MapNonSystem(@base);
-
-        if (args.Count > 0)
-        {
-            mappedBase = MapNonSystem(@base);
-            if (mappedBase == "Dynamic") return "Dynamic";
-
-            var mappedArgs = string.Join(",", args.Select(MapType));
-            return mappedBase + "<" + mappedArgs + ">";
-        }
-
-        return mappedBase;
-    }
-
     private static string MapNonSystem(string cs)
     {
-
-        var simple = SanitizeTypeName(SimpleName(cs));
+        var simple = HxTypeNameFromCs(cs);
 
         if (!cs.Contains(".", StringComparison.Ordinal))
             return "sbox." + simple;
@@ -594,7 +594,7 @@ class ExternGen {
         return "Dynamic";
     }
 
-    private static string FmtPars(ParameterInfo[] pars, IEnumerable<string> gen)
+    private static string FmtPars(ParameterInfo[] pars)
     {
         if (pars.Length == 0) return "";
 
@@ -673,6 +673,13 @@ class ExternGen {
         return s.Replace("\\", "\\\\").Replace("\"", "\\\"");
     }
 
+    private static string EscDoc(string s)
+    {
+        s = (s ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+        while (s.Contains("  ", StringComparison.Ordinal)) s = s.Replace("  ", " ");
+        return s.Replace("*/", "* /");
+    }
+
     private static string Join(string a, string b)
     {
         a = Norm(a);
@@ -691,16 +698,8 @@ class ExternGen {
 
     private static void EnsureDir(string p)
     {
-        p = Norm(p);
-        var parts = p.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        string cur = "";
-
-        foreach (var part in parts)
-        {
-            cur = (cur == "") ? part : (cur + "/" + part);
-            if (!Directory.Exists(cur))
-                Directory.CreateDirectory(cur);
-        }
+        // safer than manual splitting (works for absolute paths too)
+        Directory.CreateDirectory(p);
     }
 
     private static string TypeToCsName(Type t)
@@ -779,5 +778,245 @@ class ExternGen {
         }
 
         return new PkgInfo("sbox", "");
+    }
+
+    private static void EnsureSandboxAssembliesLoaded()
+    {
+        var candidates = new[]
+        {
+            "Sandbox.System",
+            "Sandbox.Engine",
+            "Sandbox.Reflection"
+        };
+
+        foreach (var n in candidates)
+        {
+            try
+            {
+                if (!AppDomain.CurrentDomain.GetAssemblies().Any(a => (a.GetName().Name ?? "") == n))
+                    Assembly.Load(new AssemblyName(n));
+            }
+            catch { }
+        }
+
+        foreach (var a in AppDomain.CurrentDomain.GetAssemblies().ToArray())
+        {
+            AssemblyName[] refs;
+            try { refs = a.GetReferencedAssemblies(); } catch { continue; }
+
+            foreach (var r in refs)
+            {
+                var rn = r.Name ?? "";
+                if (!rn.StartsWith("Sandbox", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                try
+                {
+                    if (!AppDomain.CurrentDomain.GetAssemblies().Any(x => (x.GetName().Name ?? "") == rn))
+                        Assembly.Load(r);
+                }
+                catch { }
+            }
+        }
+    }
+
+    private static List<Type> CollectSandboxTypes()
+    {
+        var list = new List<Type>();
+
+        foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var an = a.GetName().Name ?? "";
+            if (!an.StartsWith("Sandbox.", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            Type[] ts;
+            try { ts = a.GetTypes(); }
+            catch (ReflectionTypeLoadException ex) { ts = ex.Types.Where(x => x != null).ToArray()!; }
+            catch { continue; }
+
+            foreach (var t in ts)
+            {
+                if (t == null) continue;
+                if (t.FullName == null) continue;
+                if (t.IsPointer) continue;
+
+                if (IsCompilerGeneratedType(t)) continue;
+
+                var ns = t.Namespace ?? "";
+                bool ok =
+                    ns == "Sandbox" ||
+                    ns.StartsWith("Sandbox.", StringComparison.Ordinal) ||
+                    ns == "";
+
+                if (!ok) continue;
+
+                if (!(t.IsPublic || t.IsNestedPublic))
+                    continue;
+
+                list.Add(t);
+            }
+        }
+
+        return list
+            .GroupBy(t => t.FullName!, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .ToList();
+    }
+
+    // ----------------- XML docs (best-effort) -----------------
+    private sealed class DocProvider
+    {
+        private readonly Dictionary<string, string> _map = new(StringComparer.Ordinal);
+
+        public DocProvider(IEnumerable<Assembly> assemblies)
+        {
+            foreach (var asm in assemblies)
+            {
+                var loc = "";
+                try { loc = asm.Location ?? ""; } catch { }
+                if (string.IsNullOrWhiteSpace(loc)) continue;
+
+                var xml = Path.ChangeExtension(loc, ".xml");
+                if (!File.Exists(xml)) continue;
+
+                try
+                {
+                    var x = XDocument.Load(xml);
+                    var members = x.Root?.Element("members")?.Elements("member");
+                    if (members == null) continue;
+
+                    foreach (var m in members)
+                    {
+                        var name = (string?)m.Attribute("name");
+                        if (string.IsNullOrWhiteSpace(name)) continue;
+
+                        var sum = m.Element("summary")?.Value;
+                        if (string.IsNullOrWhiteSpace(sum)) continue;
+
+                        sum = Clean(sum);
+                        if (sum == "") continue;
+
+                        _map[name!] = sum;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        public string GetTypeSummary(Type t)
+        {
+            var full = t.FullName ?? "";
+            if (full == "") return "";
+            var key = "T:" + full;
+            return _map.TryGetValue(key, out var s) ? s : "";
+        }
+
+        public string GetPropertySummary(PropertyInfo p)
+        {
+            var dt = p.DeclaringType?.FullName ?? "";
+            if (dt == "") return "";
+            var key = "P:" + dt + "." + p.Name;
+            return _map.TryGetValue(key, out var s) ? s : "";
+        }
+
+        public string GetMethodSummary(MethodInfo m)
+        {
+            var dt = m.DeclaringType?.FullName ?? "";
+            if (dt == "") return "";
+
+            // try exact-ish without params first (works surprisingly often as a prefix in docs)
+            // M:Namespace.Type.Method
+            var prefix = "M:" + dt + "." + m.Name;
+
+            // 1) exact match
+            if (_map.TryGetValue(prefix, out var s0))
+                return s0;
+
+            // 2) prefix match (ignore overload params)
+            foreach (var kv in _map)
+                if (kv.Key.StartsWith(prefix, StringComparison.Ordinal))
+                    return kv.Value;
+
+            return "";
+        }
+
+        private static string Clean(string s)
+        {
+            s = (s ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+            while (s.Contains("  ", StringComparison.Ordinal)) s = s.Replace("  ", " ");
+            return s;
+        }
+    }
+
+    private static string HxTypeNameFromCs(string csFullOrBase)
+    {
+        csFullOrBase = (csFullOrBase ?? "").Trim();
+        if (csFullOrBase == "") return "Type";
+
+        // remove generic args <...> if any
+        int lt = csFullOrBase.IndexOf("<", StringComparison.Ordinal);
+        if (lt >= 0) csFullOrBase = csFullOrBase.Substring(0, lt);
+
+        // strip namespace
+        int dot = csFullOrBase.LastIndexOf(".", StringComparison.Ordinal);
+        string typePart = dot >= 0 ? csFullOrBase.Substring(dot + 1) : csFullOrBase;
+
+        // flatten nested types: Outer`1+Inner`2 => Outer_Inner
+        var parts = typePart.Split('+', StringSplitOptions.RemoveEmptyEntries);
+
+        var cleanedParts = new List<string>(parts.Length);
+        foreach (var p in parts)
+        {
+            var seg = p.Trim();
+
+            // remove `N for each segment only (do NOT drop "+Inner")
+            int tick = seg.IndexOf('`');
+            if (tick >= 0) seg = seg.Substring(0, tick);
+
+            // keep only [A-Za-z0-9_]
+            var sb = new StringBuilder();
+            for (int i = 0; i < seg.Length; i++)
+            {
+                char c = seg[i];
+                bool isAZ = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+                bool is09 = (c >= '0' && c <= '9');
+                if (isAZ || is09 || c == '_') sb.Append(c);
+            }
+
+            var outSeg = sb.ToString();
+            if (outSeg == "") outSeg = "Type";
+            cleanedParts.Add(outSeg);
+        }
+
+        var name = string.Join("_", cleanedParts);
+        if (name.Length > 0 && char.IsDigit(name[0])) name = "_" + name;
+        return name == "" ? "Type" : name;
+    }
+
+    private static string StripTickPreserveNested(string s)
+    {
+        s = (s ?? "").Trim();
+        if (s == "") return s;
+
+        // remove <...>
+        int lt = s.IndexOf("<", StringComparison.Ordinal);
+        if (lt >= 0) s = s.Substring(0, lt);
+
+        // strip `N inside each nested segment
+        int dot = s.LastIndexOf(".", StringComparison.Ordinal);
+        string ns = dot >= 0 ? s.Substring(0, dot + 1) : "";
+        string typePart = dot >= 0 ? s.Substring(dot + 1) : s;
+
+        var parts = typePart.Split('+', StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < parts.Length; i++)
+        {
+            var seg = parts[i];
+            int tick = seg.IndexOf('`');
+            if (tick >= 0) seg = seg.Substring(0, tick);
+            parts[i] = seg;
+        }
+
+        return ns + string.Join("+", parts);
     }
 }

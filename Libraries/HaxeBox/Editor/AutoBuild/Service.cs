@@ -4,89 +4,52 @@ using System.Text;
 using System.Threading;
 using System.Diagnostics;
 using System.Collections.Generic;
-using Sandbox;
 
 sealed class AutoBuildService : IDisposable
 {
     Timer? timer;
     FileSystemWatcher? watcher;
-    Builder builder;
 
-    bool enabled = true;
+    bool enabled = true, building, pending;
 
-    string root = "", haxeDir = "";
+    string root = "", src = "", dest = "";
 
     const int DebounceMs = 500;
 
-    public void Start() {
-        root = Project.Current.GetRootPath();
-        haxeDir = Path.Combine(root, "haxe");
-        builder = new Builder();
+    readonly List<string> defines = [
+        "no-root",
+        "no-compilation",
+        "real-position",
+        "erase-generics",
+        "analyzer-optimize"
+    ];
 
-        if (!Directory.Exists(haxeDir)) Directory.CreateDirectory(haxeDir);
+    public void Start(string root, string src, string dest)
+    {
+        enabled = true;
+
+        this.root = root;
+        this.src = src;
+        this.dest = dest;
+
+        Directory.CreateDirectory(src);
 
         watcher?.Dispose();
-        watcher = new FileSystemWatcher(haxeDir)
+        watcher = new FileSystemWatcher(Path.Combine(root, src))
         {
             IncludeSubdirectories = true,
             Filter = "*.*",
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite
         };
 
-        watcher.Created += (_, e) => { 
-            if (enabled)
-            {
-                if (Directory.Exists(e.FullPath)) {
-                    var pkg = ToPkg(e.FullPath);
-                    if (pkg != null) builder.AddPackage(pkg);
-                } else {
-                    var mod = ToMod(e.FullPath);
-                    if (mod != null) Builder.AddModule(mod);
-                }
-            }
-        }; 
-
-        watcher.Changed += (_, e) => { 
-            if (enabled)
-            {
-                if (Directory.Exists(e.FullPath)) {
-                    var pkg = ToPkg(e.FullPath);
-                    if (pkg != null) builder.AddPackage(pkg);
-                } else {
-                    var mod = ToMod(e.FullPath);
-                    if (mod != null) builder.AddModule(mod);
-                }
-            }
-        };
-
-        watcher.Deleted += (_, e) => { 
-            if (enabled)
-            {
-                if (Directory.Exists(e.FullPath)) {
-                    var pkg = ToPkg(e.FullPath);
-                    if (pkg != null) Builder.packages.Remove(pkg);
-                } else {
-                    var mod = ToMod(e.FullPath);
-                    if (mod != null) Builder.modules.Remove(mod);
-                }
-            }
-        };
-
-        watcher.Renamed += (_, e) => { 
-            if (enabled)
-            {
-                if (Directory.Exists(e.FullPath)) {
-                    var pkg = ToPkg(e.FullPath);
-                    if (pkg != null) Builder.packages.Add(pkg);
-                } else {
-                    var mod = ToMod(e.FullPath);
-                    if (mod != null) Builder.modules.Add(mod);
-                }
-            }
-        }; 
+        watcher.Created += (_, __) => Queue();
+        watcher.Changed += (_, __) => Queue();
+        watcher.Deleted += (_, __) => Queue();
+        watcher.Renamed += (_, __) => Queue();
+        watcher.EnableRaisingEvents = true;
 
         Queue();
-        Log.Info($"[HaxeBox] Auto-build ON. Watching: {haxeDir}");
+        Log.Info($"[HaxeBox] Auto-build ON. Watching: {src}");
     }
 
     public void Dispose()
@@ -99,35 +62,56 @@ sealed class AutoBuildService : IDisposable
 
     void Queue()
     {
-        if (!enabled) return;
-        timer ??= new Timer(_ => Builder.Build(root), null, Timeout.Infinite, Timeout.Infinite);
+        if (!enabled) 
+            return;
+        timer ??= new Timer(_ => Build(), null, Timeout.Infinite, Timeout.Infinite);
         timer.Change(DebounceMs, Timeout.Infinite);
     }
 
-    static bool IsRelevant(string p)
+    void Build()
     {
-        if (string.IsNullOrWhiteSpace(p)) return false;
-        if (Directory.Exists(p)) return true;
-        var f = Path.GetFileName(p);
-        if (f.Equals("build.hxml", StringComparison.OrdinalIgnoreCase)) return true;
-        var ext = Path.GetExtension(p).ToLowerInvariant();
-        return ext == ".hx" || ext == ".hxml" || f.Equals("haxelib.json", StringComparison.OrdinalIgnoreCase);
-    }
+        if (building) { pending = true; return; }
+        building = true;
+        try
+        {
+            string hxml = $"-cp {Path.Combine(".haxe", "extern")}\n";
+            hxml += $"-cp {src}\n";
+            hxml += $"-cs {dest}\n";
+            foreach (string define in defines)
+                hxml += $"-D {define}\n";
+            foreach (string mod in Directory.GetFiles(Path.Combine(root, src), "*.hx"))
+                hxml += $"{Path.GetFileName(mod)}\n";
+            foreach (string pak in Directory.GetDirectories(Path.Combine(root, src)))
+                hxml += $"--macro include('{Path.GetFileName(pak)}', true)\n";
 
-    string? ToPkg(string dir)
-    {
-        var rel = Path.GetRelativePath(haxeDir, dir).Replace('\\', '/').Trim('/');
-        if (string.IsNullOrWhiteSpace(rel) || rel.StartsWith("..")) return null;
-        return rel.Replace('/', '.');
-    }
+            File.WriteAllText(Path.Combine(root, "build.hxml"), hxml);
 
-    string? ToMod(string file)
-    {
-        if (!file.EndsWith(".hx", StringComparison.OrdinalIgnoreCase)) return null;
-        var rel = Path.GetRelativePath(haxeDir, file).Replace('\\', '/').Trim('/');
-        if (string.IsNullOrWhiteSpace(rel) || rel.StartsWith("..")) return null;
-        rel = rel[..^3];
-        return rel.Replace('/', '.');
-    }
+            var psi = new ProcessStartInfo
+            {
+                FileName = "haxe",
+                Arguments = "build.hxml",
+                WorkingDirectory = root,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
+            };
 
+            using var p = Process.Start(psi)!;
+            var o = p.StandardOutput.ReadToEnd();
+            var e = p.StandardError.ReadToEnd();
+            p.WaitForExit();
+
+            if (p.ExitCode != 0) 
+                Log.Error($"[HaxeBox] FAILED ({p.ExitCode}) {e} {o}");
+        }
+        catch (Exception ex) { Log.Error($"[HaxeBox] Exception:\n{ex}"); }
+        finally
+        {
+            building = false;
+            if (pending) { pending = false; Queue(); }
+        }
+    }
 }

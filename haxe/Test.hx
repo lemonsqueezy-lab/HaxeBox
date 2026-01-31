@@ -1,7 +1,9 @@
 package;
 
+import sbox.Log;
+
 class Test extends sbox.Component {
-	public static function main() {
-		trace("hi!");
+	@:protected override function OnUpdate() {
+		Log.Info("HI EPIC");
 	}
 }
