@@ -92,7 +92,8 @@ sealed class AutoBuilder : IDisposable
             var hxml = new StringBuilder(2048)
                 .AppendLine("-cp .haxe/extern")
                 .AppendLine("-cp haxe")
-                .AppendLine("-cs code/haxe");
+                .AppendLine("-cs code/haxe")
+                .AppendLine("--macro AttributeMacro.init()");
 
             foreach (var d in defines)
                 hxml.AppendLine("-D " + d);

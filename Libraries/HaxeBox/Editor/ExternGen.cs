@@ -245,6 +245,21 @@ static class ExternGen
         public int GenericArity;
     }
 
+    private sealed class AttributeInfo
+    {
+        public string FullName { get; set; } = "";
+        public string ShortName { get; set; } = "";
+        public string Assembly { get; set; } = "";
+        public string Namespace { get; set; } = "";
+        public string ValidOn { get; set; } = "";
+        public List<ConstructorSig> Ctors { get; set; } = new();
+    }
+
+    private sealed class ConstructorSig
+    {
+        public List<string> Args { get; set; } = new();
+    }
+
     public static string GenerateFromRuntime(string[] rootNamespaces)
     {
         if (rootNamespaces == null || rootNamespaces.Length == 0)
@@ -273,6 +288,9 @@ static class ExternGen
 
         var types = CollectTypes(assemblies, roots, docs);
         CollectExternalBaseAritiesUsed(types, roots);
+
+        var attributes = CollectAttributes(assemblies, roots);
+        WriteAttributeMacro(outRoot, roots, attributes);
 
         foreach (var t in types)
         {
@@ -1272,5 +1290,182 @@ static class ExternGen
                 foreach (var p in m.Params) Scan(p.Type);
             }
         }
+    }
+
+    private static List<AttributeInfo> CollectAttributes(IEnumerable<Assembly> assemblies, Root[] roots)
+    {
+        var result = new List<AttributeInfo>();
+
+        foreach (var asm in assemblies)
+        {
+            foreach (var t in GetLoadableTypes(asm))
+            {
+                if (t == null) continue;
+                if (t.IsAbstract) continue;
+                if (!(t.IsPublic || t.IsNestedPublic)) continue;
+
+                var ns = t.Namespace ?? "";
+                if (!IsAttributeInScope(asm, ns, roots)) continue;
+
+                if (!typeof(Attribute).IsAssignableFrom(t)) continue;
+
+                var usage = t.GetCustomAttribute<AttributeUsageAttribute>(inherit: false);
+
+                var info = new AttributeInfo
+                {
+                    FullName = NormalizeFullName(t.FullName ?? t.Name),
+                    Namespace = ns,
+                    Assembly = asm.GetName().Name ?? "",
+                    ShortName = GetShortAttributeName(t),
+                    ValidOn = usage?.ValidOn.ToString() ?? "All"
+                };
+
+                foreach (var ctor in t.GetConstructors(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    var sig = new ConstructorSig();
+                    foreach (var p in ctor.GetParameters())
+                    {
+                        sig.Args.Add(GetTypeNameSafe(p.ParameterType));
+                    }
+                    info.Ctors.Add(sig);
+                }
+
+                result.Add(info);
+            }
+        }
+
+        result.Sort((a, b) => string.CompareOrdinal(a.FullName, b.FullName));
+        return result;
+    }
+
+    private static bool IsAttributeInScope(Assembly asm, string ns, Root[] roots)
+    {
+        var asmName = asm.GetName().Name ?? "";
+        var asmIsRoot = roots.Any(r => asmName.StartsWith(r.Name, StringComparison.OrdinalIgnoreCase));
+        if (asmIsRoot) return true;
+
+        ns = (ns ?? "").Trim();
+        return IsInRootNamespace(ns, roots);
+    }
+
+    private static IEnumerable<Type> GetLoadableTypes(Assembly asm)
+    {
+        try { return asm.GetTypes(); }
+        catch (ReflectionTypeLoadException e) { return e.Types.Where(t => t != null)!; }
+        catch { return Array.Empty<Type>(); }
+    }
+
+    private static string StripAttributeSuffix(string name)
+    {
+        const string suffix = "Attribute";
+        return name.EndsWith(suffix, StringComparison.Ordinal)
+            ? name.Substring(0, name.Length - suffix.Length)
+            : name;
+    }
+
+    private static string GetShortAttributeName(Type t)
+    {
+        if (t.IsNested && t.DeclaringType != null)
+        {
+            var outer = StripAttributeSuffix(t.DeclaringType.Name);
+            var inner = StripAttributeSuffix(t.Name);
+            return outer + "." + inner;
+        }
+
+        return StripAttributeSuffix(t.Name);
+    }
+
+    private static string GetTypeNameSafe(Type t)
+    {
+        if (t.IsGenericType)
+        {
+            var def = t.GetGenericTypeDefinition();
+            var args = t.GetGenericArguments().Select(GetTypeNameSafe);
+            return $"{NormalizeFullName(def.FullName ?? def.Name)}[{string.Join(",", args)}]";
+        }
+
+        return NormalizeFullName(t.FullName ?? t.Name);
+    }    
+        
+    private static void WriteAttributeMacro(string outRoot, Root[] roots, List<AttributeInfo> attributes)
+    {
+        if (string.IsNullOrWhiteSpace(outRoot)) return;
+
+        var file = Path.Combine(outRoot, "AttributeMacro.hx");
+
+        var groups = attributes
+            .GroupBy(a => a.ShortName, StringComparer.Ordinal)
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .ToList();
+
+        var map = new List<(string Short, string Full)>();
+
+        foreach (var g in groups)
+        {
+            var best = g
+                .OrderByDescending(a => AttributePriority(a, roots))
+                .ThenBy(a => a.FullName, StringComparer.Ordinal)
+                .First();
+            map.Add((g.Key, best.FullName));
+        }
+
+        var sb = new StringBuilder(32 * 1024);
+        sb.Append("package;\n\n");
+
+        sb.Append("#if macro\n");
+        sb.Append("import haxe.macro.Compiler;\n");
+        sb.Append("import haxe.macro.Context;\n");
+        sb.Append("import haxe.macro.Expr;\n");
+        sb.Append("#end\n\n");
+
+        sb.Append("class AttributeMacro {\n");
+        sb.Append("\t#if macro\n");
+
+        sb.Append("\tpublic static function init():Void {\n");
+        sb.Append("\t\tCompiler.addGlobalMetadata(\"\", \"@:build(AttributeMacro.build())\", true);\n");
+        sb.Append("\t}\n\n");
+
+        sb.Append("\tpublic static function build():Array<Field> {\n");
+        sb.Append("\t\treturn [\n");
+        sb.Append("\t\t\tfor (field in Context?.getBuildFields() ?? []) {\n");
+        sb.Append("\t\t\t\tfield.meta = [\n");
+        sb.Append("\t\t\t\t\tfor (m in field.meta) {\n");
+        sb.Append("\t\t\t\t\t\tvar name = m.name.charAt(0) == \":\" ? m.name.substr(1) : m.name;\n");
+        sb.Append("\t\t\t\t\t\tif (ATTR.exists(name)) {\n");
+        sb.Append("\t\t\t\t\t\t\tpos: m.pos,\n");
+        sb.Append("\t\t\t\t\t\t\tname: \":meta\",\n");
+        sb.Append("\t\t\t\t\t\t\tparams: [\n");
+        sb.Append("\t\t\t\t\t\t\t\tmacro $i{ATTR[name]}(${ \n");
+        sb.Append("\t\t\t\t\t\t\t\t\tfor (p in m.params ?? [])\n");
+        sb.Append("\t\t\t\t\t\t\t\t\t\tp\n");
+        sb.Append("\t\t\t\t\t\t\t\t})\n");
+        sb.Append("\t\t\t\t\t\t\t]\n");
+        sb.Append("\t\t\t\t\t\t} else m;\n");
+        sb.Append("\t\t\t\t\t}\n");
+        sb.Append("\t\t\t\t];\n");
+        sb.Append("\t\t\t\tfield;\n");
+        sb.Append("\t\t\t}\n");
+        sb.Append("\t\t];\n");
+        sb.Append("\t}\n");
+        
+        sb.Append("    private static var ATTR:Map<String, String> = [\n");
+
+        foreach (var (shortName, fullName) in map)
+        {
+            sb.Append("        \"").Append(Esc(shortName)).Append("\" => \"").Append(Esc(fullName)).Append("\",\n");
+        }
+
+        sb.Append("    ];\n");
+        sb.Append("#end\n");
+        sb.Append("}\n");
+
+        File.WriteAllText(file, sb.ToString(), Encoding.UTF8);
+    }
+
+    private static int AttributePriority(AttributeInfo a, Root[] roots)
+    {
+        var ns = (a.Namespace ?? "").Trim();
+        if (IsInRootNamespace(ns, roots)) return 10;
+        return 0;
     }
 }
