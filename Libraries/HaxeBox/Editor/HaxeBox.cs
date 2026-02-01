@@ -1,33 +1,57 @@
+#nullable enable
+
 using System;
-using System.IO;
 using Sandbox;
+using Sandbox.Diagnostics;
 using Editor;
 
-public static class HaxeBox {
-    private static AutoBuildService? buildService;
+public static class HaxeBox
+{
+    public static Logger logger = new Logger("HaxeBox");
+    public static string projectRoot = "";
+
+    private static AutoBuilder? builder;
 
     [Event("editor.created")]
-    private static void OnEditorCreated( EditorMainWindow _ ) {
-        var projectDir = Project.Current.GetRootPath();
+    private static void OnEditorCreated(EditorMainWindow _)
+    {
+        projectRoot = Project.Current.GetRootPath();
 
-        // generate externs
-        try {
-            var outRoot =  Path.Combine(projectDir, ".haxe", "extern", "sbox").Replace("\\", "/");
-            var msg = ExternGen.GenerateFromRuntime(outRoot);
-            Log.Info(msg);
-        } catch (Exception e) {
-            Log.Info(e.ToString());
-            throw;
-        }
-
-        // run service
-        buildService ??= new AutoBuildService();
-        buildService.Start(projectDir, "haxe", Path.Combine("code", "haxe"));
+        EnableAutoBuild();
+        GenerateExterns();
     }
 
     [Event("app.exit")]
-    private static void OnAppExit() {
-        buildService?.Dispose();
-        buildService = null;
+    private static void OnAppExit()
+    {
+        builder?.Dispose();
+        builder = null;
+    }
+
+    [Menu("Editor", "HaxeBox/Generate Externs")]
+    private static void GenerateExterns()
+    {
+        try
+        {
+            var msg = ExternGen.GenerateFromRuntime(["Sandbox"]);
+            logger.Info(msg);
+            (builder ??= new AutoBuilder()).Build();
+        }
+        catch (Exception e)
+        {
+            logger.Error(e.ToString());
+            throw;
+        }
+    }
+
+    [Menu("Editor", "HaxeBox/Enable Auto Build")]
+    private static void EnableAutoBuild()
+    {
+        builder ??= new AutoBuilder();
+
+        if (builder.enabled)
+            builder.Dispose();
+        else
+            builder.Start();
     }
 }
