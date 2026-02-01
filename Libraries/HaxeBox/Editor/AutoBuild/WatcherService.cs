@@ -1,51 +1,46 @@
-#nullable enable
-
 using System;
 using System.IO;
 
 sealed class WatcherService : IDisposable
 {
-    private FileSystemWatcher? watcher;
-    private readonly string dir;
-    private readonly Action cb;
+    private readonly FileSystemWatcher watcher;
+    private readonly Action<string> onChange;
 
-    public WatcherService(string dir, Action cb)
+    public WatcherService(string path, Action<string> onChange)
     {
-        this.dir = dir ?? throw new ArgumentNullException(nameof(dir));
-        this.cb = cb ?? throw new ArgumentNullException(nameof(cb));
-    }
+        this.onChange = onChange;
 
-    public void Start()
-    {
-        Directory.CreateDirectory(dir);
-
-        watcher?.Dispose();
-
-        watcher = new FileSystemWatcher(dir)
+        watcher = new FileSystemWatcher(path)
         {
             IncludeSubdirectories = true,
-            Filter = "*.*",
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite
+            NotifyFilter =
+                NotifyFilters.FileName |
+                NotifyFilters.DirectoryName |
+                NotifyFilters.LastWrite |
+                NotifyFilters.CreationTime |
+                NotifyFilters.Size
         };
 
-        watcher.Created += OnAny;
-        watcher.Changed += OnAny;
-        watcher.Deleted += OnAny;
-        watcher.Renamed += OnAny;
-
-        watcher.EnableRaisingEvents = true;
-
-        cb();
+        watcher.Changed += OnFs;
+        watcher.Created += OnFs;
+        watcher.Deleted += OnFs;
+        watcher.Renamed += OnFs;
     }
 
-    private void OnAny(object? _, FileSystemEventArgs __) => cb();
+    public void Start() => watcher.EnableRaisingEvents = true;
+
+    private void OnFs(object sender, FileSystemEventArgs e)
+    {
+        onChange(e.FullPath);
+    }
 
     public void Dispose()
     {
-        try { watcher?.Dispose(); }
-        catch { }
-
-        watcher = null;
-        GC.SuppressFinalize(this);
+        watcher.EnableRaisingEvents = false;
+        watcher.Changed -= OnFs;
+        watcher.Created -= OnFs;
+        watcher.Deleted -= OnFs;
+        watcher.Renamed -= OnFs;
+        watcher.Dispose();
     }
 }

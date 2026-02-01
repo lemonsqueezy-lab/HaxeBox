@@ -529,11 +529,12 @@
           "StartAsleep": false
         },
         {
-          "__type": "Test",
-          "__guid": "2b82dba5-4451-4e68-8ead-8ba7132b488d",
+          "__type": "MyComponent",
+          "__guid": "5a610a9a-3c97-4df9-8343-921deee0af53",
           "__enabled": true,
           "Flags": 0,
           "a": 0,
+          "b": 0,
           "OnComponentDestroy": null,
           "OnComponentDisabled": null,
           "OnComponentEnabled": null,

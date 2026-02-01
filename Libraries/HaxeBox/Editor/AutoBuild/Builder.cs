@@ -9,13 +9,14 @@ using System.Threading;
 
 sealed class AutoBuilder : IDisposable
 {
-    private WatcherService? extWatcher;
-    private WatcherService? srcWatcher;
+    private WatcherService? genWatcher;
+    private List<WatcherService> srcWatchers = new List<WatcherService>();
     private Timer? timer;
 
     public bool enabled;
     private bool building;
     private bool pending;
+    private string[] srcs = ["code", "editor"];
 
     private const int DebounceMs = 500;
 
@@ -37,10 +38,16 @@ sealed class AutoBuilder : IDisposable
 
         var root = HaxeBox.projectRoot;
 
-        extWatcher = new WatcherService(Path.Combine(root, ".haxe", "extern"), Queue);
-        extWatcher.Start();
-        srcWatcher = new WatcherService(Path.Combine(root, "haxe"), Queue);
-        srcWatcher.Start();
+        genWatcher = new WatcherService(Path.Combine(root, "__haxe__"), Queue);
+        genWatcher.Start();
+
+        srcWatchers = [];
+        foreach (string src in srcs)
+        {
+            var watcher = new WatcherService(Path.Combine(root, src), Queue);
+            watcher.Start();
+            srcWatchers.Add(watcher);
+        }
 
         HaxeBox.logger.Info("Auto-build enabled");
     }
@@ -52,20 +59,25 @@ sealed class AutoBuilder : IDisposable
         timer?.Dispose();
         timer = null;
 
-        extWatcher?.Dispose();
-        extWatcher = null;
+        genWatcher?.Dispose();
+        genWatcher = null;
 
-        srcWatcher?.Dispose();
-        srcWatcher = null;
+        while (srcWatchers.Count > 0)
+        {
+            var watcher = srcWatchers[0];
+            watcher.Dispose();
+            srcWatchers.Remove(watcher);
+        }
 
         HaxeBox.logger.Info("Auto-build disabled");
         GC.SuppressFinalize(this);
     }
 
-    private void Queue()
+    private void Queue(string path)
     {
-        if (!enabled)
+        if (!enabled || path.Contains("__haxe__"))
             return;
+
         timer ??= new Timer(_ => Build(), null, Timeout.Infinite, Timeout.Infinite);
         timer.Change(DebounceMs, Timeout.Infinite);
     }
@@ -86,25 +98,36 @@ sealed class AutoBuilder : IDisposable
         try
         {
             var root = HaxeBox.projectRoot;
-            var haxeDir = Path.Combine(root, "haxe");
-            var hxmlPath = Path.Combine(root, "build.hxml");
-
             var hxml = new StringBuilder(2048)
-                .AppendLine("-cp .haxe/extern")
-                .AppendLine("-cp haxe")
-                .AppendLine("-cs code/haxe")
+                .AppendLine("-cp __haxe__")
                 .AppendLine("--macro AttributeMacro.init()");
-
             foreach (var d in defines)
                 hxml.AppendLine("-D " + d);
+            hxml.AppendLine("--each");
 
-            foreach (var mod in Directory.EnumerateFiles(haxeDir, "*.hx"))
-                hxml.AppendLine(Path.GetFileName(mod));
+            foreach (string src in srcs)
+            {
+                hxml.AppendLine($"-cp {src}");
+                hxml.AppendLine($"-cs {src}/__haxe__");
 
-            foreach (var pak in Directory.EnumerateDirectories(haxeDir))
-                hxml.AppendLine($"--macro include('{Path.GetFileName(pak)}', true)");
+                var dir = Path.Combine(root, src);
+                
+                foreach (var mod in Directory.EnumerateFiles(dir, "*.hx"))
+                    hxml.AppendLine(Path.GetFileName(mod));
 
-            File.WriteAllText(hxmlPath, hxml.ToString());
+                foreach (var pak in Directory.EnumerateDirectories(dir))
+                {
+                    var name = Path.GetFileName(pak);
+                    if (string.Equals(name, "__haxe__", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(name, "Properties", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    hxml.AppendLine($"--macro include('{name}', true)");
+                }
+
+                hxml.AppendLine("--next");
+            }
+
+            File.WriteAllText(Path.Combine(root, "build.hxml"), hxml.ToString());
 
             var psi = new ProcessStartInfo
             {
@@ -147,7 +170,7 @@ sealed class AutoBuilder : IDisposable
             if (pending)
             {
                 pending = false;
-                Queue();
+                Queue("");
             }
         }
     }

@@ -265,7 +265,7 @@ static class ExternGen
         if (rootNamespaces == null || rootNamespaces.Length == 0)
             throw new ArgumentException("rootNamespaces must not be empty", nameof(rootNamespaces));
 
-        string outRoot = Path.Combine(HaxeBox.projectRoot, ".haxe", "extern");
+        string outRoot = Path.Combine(HaxeBox.projectRoot, "__haxe__");
 
         var roots = rootNamespaces
             .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -1416,7 +1416,9 @@ static class ExternGen
         sb.Append("import haxe.macro.Expr;\n");
         sb.Append("import haxe.macro.Context;\n");
         sb.Append("import haxe.macro.Compiler;\n");
-        sb.Append("#end\n\n");
+        sb.Append("import haxe.macro.PositionTools;\n");
+        sb.Append("#end\n");
+        sb.Append("using StringTools;\n\n");
 
         sb.Append("class AttributeMacro {\n");
         sb.Append("\t#if macro\n");
@@ -1431,8 +1433,8 @@ static class ExternGen
         sb.Append("        if (cls == null)\n");
         sb.Append("\t\t    return fields;\n\n");
 
-        sb.Append("\t\tvar file = Context.getPosInfos(cls?.pos).file ?? \"\";\n");
-        sb.Append("        if (file.substr(0, 4) != \"haxe\")\n");
+        sb.Append("\t\tvar file = (PositionTools.getInfos(cls.pos).file ?? \"\").toLowerCase();\n");
+        sb.Append("        if (!file.startsWith(\"code\") && !file.startsWith(\"editor\"))\n");
         sb.Append("\t\t    return fields;\n\n");
 
         sb.Append("        cls.meta.add(\":nativeGen\", [], cls.pos);\n");
@@ -1453,7 +1455,7 @@ static class ExternGen
         sb.Append("                field; \n");
         sb.Append("            } \n");
         sb.Append("        ];\n");
-        sb.Append("\t}\n");
+        sb.Append("\t}\n\n");
 
         sb.Append("    private static var ATTR:Map<String, String> = [\n");
 
