@@ -16,7 +16,6 @@ public static class HaxeBox
     private static void OnEditorCreated(EditorMainWindow _)
     {
         projectRoot = Project.Current.GetRootPath();
-
         EnableAutoBuild();
         GenerateExterns();
     }

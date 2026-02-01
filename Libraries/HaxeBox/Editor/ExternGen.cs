@@ -1413,41 +1413,48 @@ static class ExternGen
         sb.Append("package;\n\n");
 
         sb.Append("#if macro\n");
-        sb.Append("import haxe.macro.Compiler;\n");
-        sb.Append("import haxe.macro.Context;\n");
         sb.Append("import haxe.macro.Expr;\n");
+        sb.Append("import haxe.macro.Context;\n");
+        sb.Append("import haxe.macro.Compiler;\n");
         sb.Append("#end\n\n");
 
         sb.Append("class AttributeMacro {\n");
         sb.Append("\t#if macro\n");
-
-        sb.Append("\tpublic static function init():Void {\n");
+        sb.Append("\tpublic static function init() {\n");
         sb.Append("\t\tCompiler.addGlobalMetadata(\"\", \"@:build(AttributeMacro.build())\", true);\n");
         sb.Append("\t}\n\n");
 
         sb.Append("\tpublic static function build():Array<Field> {\n");
-        sb.Append("\t\treturn [\n");
-        sb.Append("\t\t\tfor (field in Context?.getBuildFields() ?? []) {\n");
-        sb.Append("\t\t\t\tfield.meta = [\n");
-        sb.Append("\t\t\t\t\tfor (m in field.meta) {\n");
-        sb.Append("\t\t\t\t\t\tvar name = m.name.charAt(0) == \":\" ? m.name.substr(1) : m.name;\n");
-        sb.Append("\t\t\t\t\t\tif (ATTR.exists(name)) {\n");
-        sb.Append("\t\t\t\t\t\t\tpos: m.pos,\n");
-        sb.Append("\t\t\t\t\t\t\tname: \":meta\",\n");
-        sb.Append("\t\t\t\t\t\t\tparams: [\n");
-        sb.Append("\t\t\t\t\t\t\t\tmacro $i{ATTR[name]}(${ \n");
-        sb.Append("\t\t\t\t\t\t\t\t\tfor (p in m.params ?? [])\n");
-        sb.Append("\t\t\t\t\t\t\t\t\t\tp\n");
-        sb.Append("\t\t\t\t\t\t\t\t})\n");
-        sb.Append("\t\t\t\t\t\t\t]\n");
-        sb.Append("\t\t\t\t\t\t} else m;\n");
-        sb.Append("\t\t\t\t\t}\n");
-        sb.Append("\t\t\t\t];\n");
-        sb.Append("\t\t\t\tfield;\n");
-        sb.Append("\t\t\t}\n");
-        sb.Append("\t\t];\n");
+        sb.Append("\t\tvar fields = Context?.getBuildFields() ?? [];\n\n");
+
+        sb.Append("        var cls = Context.getLocalClass()?.get();\n");
+        sb.Append("        if (cls == null)\n");
+        sb.Append("\t\t    return fields;\n\n");
+
+        sb.Append("\t\tvar file = Context.getPosInfos(cls?.pos).file ?? \"\";\n");
+        sb.Append("        if (file.substr(0, 4) != \"haxe\")\n");
+        sb.Append("\t\t    return fields;\n\n");
+
+        sb.Append("        cls.meta.add(\":nativeGen\", [], cls.pos);\n");
+        sb.Append("        return [ \n");
+        sb.Append("            for (field in fields) { \n");
+        sb.Append("                field.meta = [ \n");
+        sb.Append("                    for (m in field.meta) { \n");
+        sb.Append("                        var name = m.name.charAt(0) == \":\" ? m.name.substr(1) : m.name;\n");
+        sb.Append("                        if (ATTR.exists(name)) { \n");
+        sb.Append("                            pos: m.pos, \n");
+        sb.Append("                            name: \":meta\", \n");
+        sb.Append("                            params: [ \n");
+        sb.Append("                                macro $i{ATTR[name]}(${ for (p in m.params ?? []) p }) \n");
+        sb.Append("                            ] \n");
+        sb.Append("                        } else m; \n");
+        sb.Append("                    } \n");
+        sb.Append("                ]; \n");
+        sb.Append("                field; \n");
+        sb.Append("            } \n");
+        sb.Append("        ];\n");
         sb.Append("\t}\n");
-        
+
         sb.Append("    private static var ATTR:Map<String, String> = [\n");
 
         foreach (var (shortName, fullName) in map)
