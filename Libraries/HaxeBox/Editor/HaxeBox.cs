@@ -28,16 +28,22 @@ public static class HaxeBox
     }
 
     [Menu("Editor", "HaxeBox/Generate Externs")]
-    private static void GenerateExterns()
+    private static async void GenerateExterns()
     {
         try
         {
+            await GameTask.WorkerThread();
+
             var msg = ExternGen.GenerateFromRuntime(["Sandbox"]);
-            logger.Info(msg);
+
             (builder ??= new AutoBuilder()).Build();
+
+            await GameTask.MainThread();
+            logger.Info(msg);
         }
         catch (Exception e)
         {
+            await GameTask.MainThread();
             logger.Error(e.ToString());
             throw;
         }
@@ -51,6 +57,6 @@ public static class HaxeBox
         if (builder.enabled)
             builder.Dispose();
         else
-            builder.Start();
+            builder.Start(6060);
     }
 }
