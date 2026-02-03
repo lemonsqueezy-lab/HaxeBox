@@ -9,6 +9,8 @@ using Sandbox;
 
 sealed class Builder : IDisposable
 {
+    static string[] ignore = ["obj", "__haxe__", "properties"];
+
     volatile bool disposed;
 
     int port;
@@ -24,6 +26,7 @@ sealed class Builder : IDisposable
 
     public Builder(int port) {
         this.port = port;
+        watcher = new Watcher(Path.Combine(Project.Current.GetRootPath(), "code"), Queue);
 
         StartServer();
         HaxeBox.logger.Info("Builder created");
@@ -35,8 +38,7 @@ sealed class Builder : IDisposable
             return;
         enabled = false;
 
-        watcher?.Dispose();
-        watcher = null;
+        watcher.Stop();
         HaxeBox.logger.Info("Builder paused");
     }
 
@@ -46,7 +48,6 @@ sealed class Builder : IDisposable
             return;
         enabled = true;
 
-        watcher = new Watcher(Path.Combine(Project.Current.GetRootPath(), "code"), Queue);
         watcher.Start();
         HaxeBox.logger.Info("Builder resumed");
     }
@@ -59,7 +60,7 @@ sealed class Builder : IDisposable
         timer?.Dispose();
         timer = null;
 
-        watcher?.Dispose();
+        watcher.Dispose();
         watcher = null;
 
         StopServer();
@@ -70,7 +71,6 @@ sealed class Builder : IDisposable
     public void Build()
     {
         if (disposed) return;
-        if (!enabled) return;
         if (building) { pending = true; return; }
         building = true;
 
@@ -83,7 +83,12 @@ sealed class Builder : IDisposable
                 new Compiler.Configuration()
             );
             var dir = Path.Combine(root, "code");
+            var outDir = Path.Combine(dir, "__haxe__");
             var whitelist = !project.Config.IsStandaloneOnly;
+
+            if (Directory.Exists(outDir))
+                Directory.Delete(outDir, true);
+            Directory.CreateDirectory(outDir);
 
             var sb = new StringBuilder(2048)
                 .AppendLine("-cp code")
@@ -120,10 +125,9 @@ sealed class Builder : IDisposable
                 sb.AppendLine(Path.GetFileNameWithoutExtension(f));
             foreach (string p in Directory.EnumerateDirectories(dir, "*", SearchOption.TopDirectoryOnly)) {
                 var name = Path.GetFileName(p);
-                if (name.Equals("__haxe__", StringComparison.OrdinalIgnoreCase) ||
-                    name.Equals("Properties", StringComparison.OrdinalIgnoreCase))
+                if (ignore.Contains(name, StringComparer.OrdinalIgnoreCase))
                     continue;
-                sb.AppendLine($"--macro include(\"{name}\")");
+                sb.AppendLine($"--macro include(\"{name}\", true)");
             }
 
             File.WriteAllText(Path.Combine(root, "build.hxml"), sb.ToString());

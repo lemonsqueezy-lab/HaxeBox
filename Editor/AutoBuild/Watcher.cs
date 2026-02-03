@@ -29,6 +29,8 @@ sealed class Watcher : IDisposable
 
     public void Start() => watcher.EnableRaisingEvents = true;
 
+    public void Stop() => watcher.EnableRaisingEvents = false;
+
     private void OnFs(object sender, FileSystemEventArgs e)
     {
         onChange(e.FullPath);
@@ -36,7 +38,7 @@ sealed class Watcher : IDisposable
 
     public void Dispose()
     {
-        watcher.EnableRaisingEvents = false;
+        Stop();
         watcher.Changed -= OnFs;
         watcher.Created -= OnFs;
         watcher.Deleted -= OnFs;

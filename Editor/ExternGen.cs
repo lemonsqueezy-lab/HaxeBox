@@ -338,7 +338,7 @@ static class ExternGen
             if (!string.IsNullOrWhiteSpace(t.Summary))
                 sb.Append("/** ").Append(EscDoc(t.Summary)).Append(" */\n");
 
-            sb.Append("@:native(\"").Append(Esc(t.NativeFullName)).Append("\")\n");
+            sb.Append("@:native(\"").Append(Esc(t.NativeFullName.Replace("+", "."))).Append("\")\n");
 
             if (t.IsEnum)
             {
