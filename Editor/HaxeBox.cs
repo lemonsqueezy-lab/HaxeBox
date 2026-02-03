@@ -37,10 +37,12 @@ public static class HaxeBox
     [Menu("Editor", "HaxeBox/Generate Externs")]
     private static void GenerateExterns()
     {
-        var msg = ExternGen.GenerateFromRuntime(["Sandbox"]);
-
-        logger.Info(msg);
-        Build();
+        try {
+            logger.Info(ExternGen.GenerateFromRuntime(["Sandbox"]));
+            Build();
+        } catch (Exception e) {
+            logger.Error(e);
+        }
     }
 
     [Menu("Editor", "HaxeBox/Toggle Auto Build")]

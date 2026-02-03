@@ -17,7 +17,7 @@ sealed class Builder : IDisposable
     bool building, pending;
 
     Timer? timer;
-    Watcher? watcher;
+    Watcher watcher;
     Process? server;
     DataReceivedEventHandler? serverOutHandler;
     DataReceivedEventHandler? serverErrHandler;
@@ -61,7 +61,6 @@ sealed class Builder : IDisposable
         timer = null;
 
         watcher.Dispose();
-        watcher = null;
 
         StopServer();
 
@@ -96,7 +95,7 @@ sealed class Builder : IDisposable
                 .AppendLine("-cp __haxe__/macro")
                 .AppendLine($"-cp {HaxeBox.path}/haxe/extern")
                 .AppendLine("-cs code/__haxe__")
-                .AppendLine("--macro AttributeMacro.init()")
+                .AppendLine("--macro HaxeBoxMacro.init()")
                 .AppendLine($"--connect {port}")
                 .AppendLine("");
             if (cfg.ReleaseMode == Compiler.ReleaseMode.Release)

@@ -1396,8 +1396,6 @@ static class ExternGen
     {
         if (string.IsNullOrWhiteSpace(outRoot)) return;
 
-        var file = Path.Combine(outRoot, "AttributeMacro.hx");
-
         var groups = attributes
             .GroupBy(a => a.ShortName, StringComparer.Ordinal)
             .OrderBy(g => g.Key, StringComparer.Ordinal)
@@ -1414,66 +1412,18 @@ static class ExternGen
             map.Add((g.Key, best.FullName));
         }
 
-        var sb = new StringBuilder(32 * 1024);
-        sb.Append("package;\n\n");
-
-        sb.Append("#if macro\n");
-        sb.Append("import haxe.macro.Expr;\n");
-        sb.Append("import haxe.macro.Context;\n");
-        sb.Append("import haxe.macro.Compiler;\n");
-        sb.Append("import haxe.macro.PositionTools;\n");
-        sb.Append("#end\n");
-        sb.Append("using StringTools;\n\n");
-
-        sb.Append("class AttributeMacro {\n");
-        sb.Append("\t#if macro\n");
-        sb.Append("\tpublic static function init() {\n");
-        sb.Append("\t\tCompiler.addGlobalMetadata(\"\", \"@:build(AttributeMacro.build())\", true);\n");
-        sb.Append("\t}\n\n");
-
-        sb.Append("\tpublic static function build():Array<Field> {\n");
-        sb.Append("\t\tvar fields = Context?.getBuildFields() ?? [];\n\n");
-
-        sb.Append("        var cls = Context.getLocalClass()?.get();\n");
-        sb.Append("        if (cls == null)\n");
-        sb.Append("\t\t    return fields;\n\n");
-
-        sb.Append("\t\tvar file = (PositionTools.getInfos(cls.pos).file ?? \"\").toLowerCase();\n");
-        sb.Append("        if (!file.startsWith(\"code\") && !file.startsWith(\"editor\"))\n");
-        sb.Append("\t\t    return fields;\n\n");
-
-        sb.Append("        cls.meta.add(\":nativeGen\", [], cls.pos);\n");
-        sb.Append("        return [ \n");
-        sb.Append("            for (field in fields) { \n");
-        sb.Append("                field.meta = [ \n");
-        sb.Append("                    for (m in field.meta) { \n");
-        sb.Append("                        var name = m.name.charAt(0) == \":\" ? m.name.substr(1) : m.name;\n");
-        sb.Append("                        if (ATTR.exists(name)) { \n");
-        sb.Append("                            pos: m.pos, \n");
-        sb.Append("                            name: \":meta\", \n");
-        sb.Append("                            params: [ \n");
-        sb.Append("                                macro $i{ATTR[name]}(${ for (p in m.params ?? []) p }) \n");
-        sb.Append("                            ] \n");
-        sb.Append("                        } else m; \n");
-        sb.Append("                    } \n");
-        sb.Append("                ]; \n");
-        sb.Append("                field; \n");
-        sb.Append("            } \n");
-        sb.Append("        ];\n");
-        sb.Append("\t}\n\n");
-
-        sb.Append("    private static var ATTR:Map<String, String> = [\n");
-
+        var sb = new StringBuilder(32 * 1024).Append("\n");
         foreach (var (shortName, fullName) in map)
-        {
-            sb.Append("        \"").Append(Esc(shortName)).Append("\" => \"").Append(Esc(fullName)).Append("\",\n");
-        }
+            sb.Append("\t\t\"")
+              .Append(Esc(shortName))
+              .Append("\" => \"")
+              .Append(Esc(fullName))
+              .Append("\",\n");
+        sb.Append("\t");
 
-        sb.Append("    ];\n");
-        sb.Append("#end\n");
-        sb.Append("}\n");
-
-        File.WriteAllText(file, sb.ToString(), Encoding.UTF8);
+        var macroPath = Path.Combine(HaxeBox.path, "haxe", "macro", "HaxeBoxMacro.hx");
+        var macroContent = File.ReadAllText(macroPath).Replace("__ATTR__", sb.ToString());
+        File.WriteAllText(Path.Combine(outRoot, "HaxeBoxMacro.hx"), macroContent, Encoding.UTF8);
     }
 
     private static int AttributePriority(AttributeInfo a, Root[] roots)
