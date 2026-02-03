@@ -83,14 +83,13 @@ sealed class Builder : IDisposable
                 new Compiler.Configuration()
             );
             var dir = Path.Combine(root, "code");
-            var lib = Editor.FileSystem.Libraries.GetFullPath("haxebox");
             var whitelist = !project.Config.IsStandaloneOnly;
 
             var sb = new StringBuilder(2048)
                 .AppendLine("-cp code")
                 .AppendLine("-cp __haxe__/extern")
                 .AppendLine("-cp __haxe__/macro")
-                .AppendLine($"-cp {lib}/haxe/extern")
+                .AppendLine($"-cp {HaxeBox.path}/haxe/extern")
                 .AppendLine("-cs code/__haxe__")
                 .AppendLine("--macro AttributeMacro.init()")
                 .AppendLine($"--connect {port}")
@@ -124,7 +123,7 @@ sealed class Builder : IDisposable
                 if (name.Equals("__haxe__", StringComparison.OrdinalIgnoreCase) ||
                     name.Equals("Properties", StringComparison.OrdinalIgnoreCase))
                     continue;
-                sb.AppendLine(name);
+                sb.AppendLine($"--macro include(\"{name}\")");
             }
 
             File.WriteAllText(Path.Combine(root, "build.hxml"), sb.ToString());
@@ -154,7 +153,7 @@ sealed class Builder : IDisposable
             if (!string.IsNullOrWhiteSpace(e)) HaxeBox.logger.Error(e);
             
             if (whitelist)
-                PatchWhitelist(Path.Combine(lib, "haxe", "src"), Path.Combine(root, "code", "__haxe__", "src"));
+                PatchWhitelist(Path.Combine(HaxeBox.path, "haxe", "src"), Path.Combine(root, "code", "__haxe__", "src"));
         }
         catch (Exception ex) { HaxeBox.logger.Error(ex.ToString()); }
         finally
@@ -210,28 +209,12 @@ sealed class Builder : IDisposable
 
     void StopServer()
     {
-        var proc = server;
+        if (server == null)
+            return;
+            
+        server.Kill();
         server = null;
-        if (proc == null) return;
-
-        try
-        {
-            try { proc.CancelOutputRead(); } catch { }
-            try { proc.CancelErrorRead(); } catch { }
-            if (serverOutHandler != null) proc.OutputDataReceived -= serverOutHandler;
-            if (serverErrHandler != null) proc.ErrorDataReceived  -= serverErrHandler;
-            serverOutHandler = null;
-            serverErrHandler = null;
-
-            if (!proc.HasExited)
-                try { proc.Kill(entireProcessTree: false); } catch { }
-        }
-        catch { }
-        finally
-        {
-            try { proc.Dispose(); } catch { }
-            HaxeBox.logger.Info("Compilation server stopped");
-        }
+        HaxeBox.logger.Info("Compilation server stopped");
     }
 
     void Queue(string path)
