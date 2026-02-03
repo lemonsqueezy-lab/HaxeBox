@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Xml.Linq;
+using Sandbox;
 
 static class ExternGen
 {
@@ -30,6 +31,7 @@ static class ExternGen
         ["System.Void"] = "Void",
         ["System.Boolean"] = "Bool",
         ["System.String"] = "String",
+        ["System.FormattableString"] = "String",
         ["System.Single"] = "Single",
         ["System.Double"] = "Float",
         ["System.Decimal"] = "cs.system.Decimal",
@@ -41,6 +43,7 @@ static class ExternGen
         ["System.UInt32"] = "UInt",
         ["System.Int64"] = "haxe.Int64",
         ["System.Object"] = "cs.system.Object",
+        ["System.Type"] = "cs.system.Type"
     };
 
     private static bool TryMapPrimitive(string csType, out string hxType)
@@ -265,7 +268,10 @@ static class ExternGen
         if (rootNamespaces == null || rootNamespaces.Length == 0)
             throw new ArgumentException("rootNamespaces must not be empty", nameof(rootNamespaces));
 
-        string outRoot = Path.Combine(HaxeBox.projectRoot, "__haxe__");
+        string outRoot = Path.Combine(Project.Current.GetRootPath(), "__haxe__", "extern");
+        Directory.CreateDirectory(outRoot);
+        string macroRoot = Path.Combine(Project.Current.GetRootPath(), "__haxe__", "macro");
+        Directory.CreateDirectory(macroRoot);
 
         var roots = rootNamespaces
             .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -277,7 +283,6 @@ static class ExternGen
         if (roots.Length == 0)
             throw new ArgumentException("rootNamespaces must not be empty", nameof(rootNamespaces));
 
-        Directory.CreateDirectory(outRoot);
         ExternalStubs.Clear();
         ExternalBaseAritiesUsed.Clear();
         RootGenericArity.Clear();
@@ -290,7 +295,7 @@ static class ExternGen
         CollectExternalBaseAritiesUsed(types, roots);
 
         var attributes = CollectAttributes(assemblies, roots);
-        WriteAttributeMacro(outRoot, roots, attributes);
+        WriteAttributeMacro(macroRoot, roots, attributes);
 
         foreach (var t in types)
         {

@@ -1,12 +1,12 @@
 using System;
 using System.IO;
 
-sealed class WatcherService : IDisposable
+sealed class Watcher : IDisposable
 {
     private readonly FileSystemWatcher watcher;
     private readonly Action<string> onChange;
 
-    public WatcherService(string path, Action<string> onChange)
+    public Watcher(string path, Action<string> onChange)
     {
         this.onChange = onChange;
 

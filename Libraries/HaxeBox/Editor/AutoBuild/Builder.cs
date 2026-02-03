@@ -5,109 +5,131 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading;
+using Sandbox;
 
-sealed class AutoBuilder : IDisposable
+sealed class Builder : IDisposable
 {
-    public bool enabled;
-
-    const int DebounceMs = 300;
-
-    static readonly string[] Srcs = ["code", "editor"];
-    static readonly string[] Defines =
-    [
-        "no-traces","no-compilation","real-position","erase-generics","analyzer-optimize"
-    ];
-
-    WatcherService? genWatcher;
-    readonly List<WatcherService> watchers = new();
-    Timer? timer;
+    volatile bool disposed;
 
     int port;
     bool building, pending;
+
+    Timer? timer;
+    Watcher? watcher;
     Process? server;
+    DataReceivedEventHandler? serverOutHandler;
+    DataReceivedEventHandler? serverErrHandler;
 
-    public void Start(int port)
-    {
-        if (enabled) return;
-        enabled = true; this.port = port;
+    public bool enabled;
 
-        var root = HaxeBox.projectRoot;
-
-        genWatcher = new WatcherService(Path.Combine(root, "__haxe__"), Queue);
-        genWatcher.Start();
-
-        watchers.Clear();
-        foreach (var s in Srcs)
-        {
-            var w = new WatcherService(Path.Combine(root, s), Queue);
-            w.Start();
-            watchers.Add(w);
-        }
+    public Builder(int port) {
+        this.port = port;
 
         StartServer();
-        HaxeBox.logger.Info("Auto-build enabled");
+        HaxeBox.logger.Info("Builder created");
+    }
+
+    public void Pause()
+    {
+        if (!enabled) 
+            return;
+        enabled = false;
+
+        watcher?.Dispose();
+        watcher = null;
+        HaxeBox.logger.Info("Builder paused");
+    }
+
+    public void Resume()
+    {
+        if (enabled) 
+            return;
+        enabled = true;
+
+        watcher = new Watcher(Path.Combine(Project.Current.GetRootPath(), "code"), Queue);
+        watcher.Start();
+        HaxeBox.logger.Info("Builder resumed");
     }
 
     public void Dispose()
     {
+        disposed = true;
         enabled = false;
-        timer?.Dispose(); timer = null;
 
-        genWatcher?.Dispose(); genWatcher = null;
+        timer?.Dispose();
+        timer = null;
 
-        foreach (var w in watchers) w.Dispose();
-        watchers.Clear();
+        watcher?.Dispose();
+        watcher = null;
 
         StopServer();
-        HaxeBox.logger.Info("Auto-build disabled");
-        GC.SuppressFinalize(this);
-    }
 
-    void StartServer()
-    {
-        StopServer();
-
-        server = Process.Start(new ProcessStartInfo
-        {
-            FileName = "haxe",
-            Arguments = $"--wait {port}",
-            WorkingDirectory = HaxeBox.projectRoot,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        });
-
-        if (server == null) { HaxeBox.logger.Error("Haxe server start failed"); return; }
-
-        server.OutputDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) HaxeBox.logger.Info(e.Data); };
-        server.ErrorDataReceived  += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) HaxeBox.logger.Error(e.Data); };
-        server.BeginOutputReadLine();
-        server.BeginErrorReadLine();
-    }
-
-    void StopServer()
-    {
-        if (server == null) return;
-        try { if (!server.HasExited) { server.Kill(true); server.WaitForExit(1000); } }
-        catch { }
-        server.Dispose(); server = null;
+        HaxeBox.logger.Info("Builder stopped");
     }
 
     public void Build()
     {
+        if (disposed) return;
         if (!enabled) return;
         if (building) { pending = true; return; }
         building = true;
 
         try
         {
-            var root = HaxeBox.projectRoot;
-            File.WriteAllText(Path.Combine(root, "build.hxml"), MakeHxml(root, port));
+            var project = Project.Current;
+            var root = project.GetRootPath();
+            var cfg = project.Config.GetMetaOrDefault(
+                "Compiler",
+                new Compiler.Configuration()
+            );
+            var dir = Path.Combine(root, "code");
+            var lib = Editor.FileSystem.Libraries.GetFullPath("haxebox");
+            var whitelist = !project.Config.IsStandaloneOnly;
 
-            using var p = Process.Start(new ProcessStartInfo
+            var sb = new StringBuilder(2048)
+                .AppendLine("-cp code")
+                .AppendLine("-cp __haxe__/extern")
+                .AppendLine("-cp __haxe__/macro")
+                .AppendLine($"-cp {lib}/haxe/extern")
+                .AppendLine("-cs code/__haxe__")
+                .AppendLine("--macro AttributeMacro.init()")
+                .AppendLine($"--connect {port}")
+                .AppendLine("");
+            if (cfg.ReleaseMode == Compiler.ReleaseMode.Release)
+                sb.AppendLine("-dce full")
+                  .AppendLine("-D analyzer-optimize");
+            else
+                sb.AppendLine("--no-opt")
+                  .AppendLine("-debug")
+                  .AppendLine("-dce no")
+                  .AppendLine("-D no-inline")
+                  .AppendLine("-D keep-old-output");
+                
+            if (whitelist) 
+                sb.AppendLine("-D WHITELIST");
+
+            sb.AppendLine("-D no-traces")
+              .AppendLine("-D no-compilation")
+              .AppendLine("-D real-position");
+            foreach (var s in cfg.GetPreprocessorSymbols())
+                if (!s.Equals("DEBUG", StringComparison.OrdinalIgnoreCase))
+                    sb.AppendLine("-D " + s);
+
+            sb.AppendLine("");
+            
+            foreach (string f in Directory.EnumerateFiles(dir, "*.hx", SearchOption.TopDirectoryOnly))
+                sb.AppendLine(Path.GetFileNameWithoutExtension(f));
+            foreach (string p in Directory.EnumerateDirectories(dir, "*", SearchOption.TopDirectoryOnly)) {
+                var name = Path.GetFileName(p);
+                if (name.Equals("__haxe__", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals("Properties", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                sb.AppendLine(name);
+            }
+
+            File.WriteAllText(Path.Combine(root, "build.hxml"), sb.ToString());
+
+            using var process = Process.Start(new ProcessStartInfo
             {
                 FileName = "haxe",
                 Arguments = "build.hxml",
@@ -120,14 +142,19 @@ sealed class AutoBuilder : IDisposable
                 StandardErrorEncoding = Encoding.UTF8
             });
 
-            if (p == null) { HaxeBox.logger.Error("Haxe build start failed"); return; }
+            if (process == null) { 
+                HaxeBox.logger.Error("Haxe build start failed");
+                return;
+            }
 
-            var o = p.StandardOutput.ReadToEnd();
-            var e = p.StandardError.ReadToEnd();
-            p.WaitForExit();
-
+            var o = process.StandardOutput.ReadToEnd();
+            var e = process.StandardError.ReadToEnd();
+            process.WaitForExit();
             if (!string.IsNullOrWhiteSpace(o)) HaxeBox.logger.Info(o);
             if (!string.IsNullOrWhiteSpace(e)) HaxeBox.logger.Error(e);
+            
+            if (whitelist)
+                PatchWhitelist(Path.Combine(lib, "haxe", "src"), Path.Combine(root, "code", "__haxe__", "src"));
         }
         catch (Exception ex) { HaxeBox.logger.Error(ex.ToString()); }
         finally
@@ -137,48 +164,101 @@ sealed class AutoBuilder : IDisposable
         }
     }
 
-    static string MakeHxml(string root, int port)
+    void StartServer()
     {
-        var sb = new StringBuilder(2048)
-            .AppendLine("-cp __haxe__")
-            .AppendLine("--macro AttributeMacro.init()")
-            .AppendLine($"--connect {port}");
+        StopServer();
 
-        foreach (var d in Defines) sb.AppendLine("-D " + d);
-        sb.AppendLine("--each");
-
-        foreach (var src in Srcs)
+        server = Process.Start(new ProcessStartInfo
         {
-            sb.AppendLine($"-cp {src}")
-              .AppendLine($"-cs {src}/__haxe__");
+            FileName = "haxe",
+            Arguments = $"--wait {port}",
+            WorkingDirectory = Project.Current.GetRootPath(),
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        });
 
-            var dir = Path.Combine(root, src);
-
-            foreach (var f in Directory.EnumerateFiles(dir, "*.hx", SearchOption.TopDirectoryOnly))
-                sb.AppendLine(Path.GetFileName(f));
-
-            foreach (var p in Directory.EnumerateDirectories(dir, "*", SearchOption.TopDirectoryOnly))
-            {
-                var name = Path.GetFileName(p);
-                if (name.Equals("__haxe__", StringComparison.OrdinalIgnoreCase) ||
-                    name.Equals("Properties", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                sb.AppendLine($"--macro include('{name}', true)");
-            }
-
-            sb.AppendLine("--next");
+        if (server == null)
+        {
+            HaxeBox.logger.Error("Compilation server start failed");
+            return;
         }
 
-        return sb.ToString();
+        serverOutHandler = (_, e) =>
+        {
+            if (!string.IsNullOrWhiteSpace(e.Data))
+                HaxeBox.logger.Info(e.Data);
+        };
+
+        serverErrHandler = (_, e) =>
+        {
+            if (!string.IsNullOrWhiteSpace(e.Data))
+                HaxeBox.logger.Error(e.Data);
+        };
+
+        server.OutputDataReceived += serverOutHandler;
+        server.ErrorDataReceived  += serverErrHandler;
+
+        server.BeginOutputReadLine();
+        server.BeginErrorReadLine();
+
+        HaxeBox.logger.Info("Compilation server started");
+    }
+
+    void StopServer()
+    {
+        var proc = server;
+        server = null;
+        if (proc == null) return;
+
+        try
+        {
+            try { proc.CancelOutputRead(); } catch { }
+            try { proc.CancelErrorRead(); } catch { }
+            if (serverOutHandler != null) proc.OutputDataReceived -= serverOutHandler;
+            if (serverErrHandler != null) proc.ErrorDataReceived  -= serverErrHandler;
+            serverOutHandler = null;
+            serverErrHandler = null;
+
+            if (!proc.HasExited)
+                try { proc.Kill(entireProcessTree: false); } catch { }
+        }
+        catch { }
+        finally
+        {
+            try { proc.Dispose(); } catch { }
+            HaxeBox.logger.Info("Compilation server stopped");
+        }
     }
 
     void Queue(string path)
     {
+        if (disposed) return;
         if (!enabled) return;
         if (!string.IsNullOrEmpty(path) && path.Contains("__haxe__", StringComparison.OrdinalIgnoreCase)) return;
 
         timer ??= new Timer(_ => Build(), null, Timeout.Infinite, Timeout.Infinite);
-        timer.Change(DebounceMs, Timeout.Infinite);
+        timer.Change(500, Timeout.Infinite);
+    }
+
+    public static void PatchWhitelist(string src, string tgt)
+    {
+        if (!Directory.Exists(src) || !Directory.Exists(tgt))
+            return;
+
+        var tgtDir = new DirectoryInfo(tgt);
+
+        foreach (var tgtFile in tgtDir.GetFiles())
+        {
+            var srcFilePath = Path.Combine(src, tgtFile.Name);
+            if (File.Exists(srcFilePath))
+                File.Copy(srcFilePath, tgtFile.FullName, true);
+        }
+
+        foreach (var tgtSubDir in tgtDir.GetDirectories())
+            PatchWhitelist(Path.Combine(src, tgtSubDir.Name), tgtSubDir.FullName);
     }
 }
