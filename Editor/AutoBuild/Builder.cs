@@ -89,8 +89,7 @@ sealed class Builder : IDisposable
 
             var sb = new StringBuilder(2048)
                 .AppendLine("-cp code")
-                .AppendLine("-cp __haxe__/extern")
-                .AppendLine("-cp __haxe__/macro")
+                .AppendLine($"-cp {HaxeBox.path}/haxe/macro")
                 .AppendLine($"-cp {HaxeBox.path}/haxe/extern")
                 .AppendLine("-cs code/__haxe__")
                 .AppendLine("--macro HaxeBoxMacro.init()")

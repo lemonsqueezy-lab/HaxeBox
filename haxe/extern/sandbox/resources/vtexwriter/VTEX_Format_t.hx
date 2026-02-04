@@ -1,0 +1,34 @@
+﻿package sandbox.resources.vtexwriter;
+
+@:native("Sandbox.Resources.VTexWriter.VTEX_Format_t")
+extern enum abstract VTEX_Format_t(Int) {
+    var VTEX_FORMAT_INVALID;
+    var VTEX_FORMAT_BC1;
+    var VTEX_FORMAT_BC3;
+    var VTEX_FORMAT_I8;
+    var VTEX_FORMAT_RGBA8888;
+    var VTEX_FORMAT_R16;
+    var VTEX_FORMAT_RG1616;
+    var VTEX_FORMAT_RGBA16161616;
+    var VTEX_FORMAT_R16F;
+    var VTEX_FORMAT_RG1616F;
+    var VTEX_FORMAT_RGBA16161616F;
+    var VTEX_FORMAT_R32F;
+    var VTEX_FORMAT_RG3232F;
+    var VTEX_FORMAT_RGB323232F;
+    var VTEX_FORMAT_RGBA32323232F;
+    var VTEX_FORMAT_JPEG_RGBA8888;
+    var VTEX_FORMAT_PNG_RGBA8888;
+    var VTEX_FORMAT_JPEG_DXT5;
+    var VTEX_FORMAT_PNG_DXT5;
+    var VTEX_FORMAT_BC6H;
+    var VTEX_FORMAT_BC7;
+    var VTEX_FORMAT_BC5;
+    var VTEX_FORMAT_IA88;
+    var VTEX_FORMAT_ETC2;
+    var VTEX_FORMAT_ETC2_EAC;
+    var VTEX_FORMAT_R11_EAC;
+    var VTEX_FORMAT_RG11_EAC;
+    var VTEX_FORMAT_BC4;
+    var VTEX_FORMAT_BGRA8888;
+}

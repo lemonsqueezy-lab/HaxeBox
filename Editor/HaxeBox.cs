@@ -17,7 +17,6 @@ public static class HaxeBox
     public static void OnCreated(EditorMainWindow _)
     {
         FindPath();
-        GenerateExterns();
     }
 
     [Event("app.exit")]
@@ -32,17 +31,6 @@ public static class HaxeBox
     {
         builder ??= new Builder(port);
         builder.Build();
-    }
-
-    [Menu("Editor", "HaxeBox/Generate Externs")]
-    private static void GenerateExterns()
-    {
-        try {
-            logger.Info(ExternGen.GenerateFromRuntime(["Sandbox"]));
-            Build();
-        } catch (Exception e) {
-            logger.Error(e);
-        }
     }
 
     [Menu("Editor", "HaxeBox/Toggle Auto Build")]
