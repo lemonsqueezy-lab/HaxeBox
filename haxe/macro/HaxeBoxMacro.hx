@@ -18,21 +18,21 @@ class HaxeBoxMacro {
 	}
 
 	public static function build():Array<Field> {
-		var fields = Context?.getBuildFields() ?? [];
-
+		var fields = Context.getBuildFields() ?? [];
 		var cls = Context.getLocalClass()?.get();
 		if (cls == null)
 			return fields;
 
 		var file = (PositionTools.getInfos(cls.pos).file ?? "").toLowerCase();
-		if (!file.startsWith("code") && !file.startsWith("editor"))
+		if (!file.startsWith("code"))
 			return fields;
 
 		cls.meta.add(":nativeGen", [], cls.pos);
+
 		if (!cls.meta.has(":native"))
 			cls.meta.add(":native", [macro $v{cls.module}], cls.pos);
 
-		return [
+		fields = [
 			for (field in fields) {
 				field.meta = [
 					for (m in field.meta) {
@@ -60,6 +60,8 @@ class HaxeBoxMacro {
 				field;
 			}
 		];
+
+		return fields;
 	}
 	#end
 }

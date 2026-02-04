@@ -85,8 +85,6 @@ sealed class Builder : IDisposable
             var outDir = Path.Combine(dir, "__haxe__");
             var whitelist = !project.Config.IsStandaloneOnly;
 
-            if (Directory.Exists(outDir))
-                Directory.Delete(outDir, true);
             Directory.CreateDirectory(outDir);
 
             var sb = new StringBuilder(2048)

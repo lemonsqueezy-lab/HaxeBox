@@ -201,8 +201,6 @@ namespace haxe.ds {
 		
 		object haxe_ds_EnumValueMap_cast<K_c, V_c>();
 		
-		object haxe_ds_BalancedTree_cast<K_c, V_c>();
-		
 		int compareArgs(global::Array a1, global::Array a2);
 		
 		int compareArg(object v1, object v2);
