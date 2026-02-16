@@ -1,7 +1,7 @@
 ﻿package sandbox.modeleditor;
 
 @:native("Sandbox.ModelEditor.LineAttribute")
-extern class LineAttribute {
+extern class LineAttribute extends sandbox.modeleditor.internal.BaseModelDocAttribute {
     function new():Void;
     /** Internal name of the key that dictates which bone to use as parent for start position. */
     var BoneFrom(default,default):String;
@@ -21,7 +21,6 @@ extern class LineAttribute {
     var Color(default,default):String;
     /** The width of the line helper */
     var Width(default,default):Single;
-    var TypeId(default,never):cs.system.Object;
     @:protected function AddKeys(dict:system.collections.generic.Dictionary<String,cs.system.Object>):Void;
     @:protected function AddTransform(sb:system.text.StringBuilder):Void;
 }

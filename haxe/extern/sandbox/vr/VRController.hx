@@ -2,10 +2,7 @@
 
 /** Represents a VR controller, along with its transform, velocity, and inputs. */
 @:native("Sandbox.VR.VRController")
-final extern class VRController {
-    @:protected
-    var EqualityContract(null,never):cs.system.Type;
-    var Transform(default,never):Transform;
+final extern class VRController extends sandbox.vr.TrackedObject {
     /** Is this controller currently being represented using full hand tracking? */
     var IsHandTracked(default,never):Bool;
     /** The trigger input on this controller */
@@ -20,16 +17,6 @@ final extern class VRController {
     var ButtonA(default,never):sandbox.vr.DigitalInput;
     /** The secondary button on this controller (Usually B, can be Y for Oculus Touch) */
     var ButtonB(default,never):sandbox.vr.DigitalInput;
-    /** Whether or not this object is currently accessible (if false, then the transform will not update). */
-    var Active(default,never):Bool;
-    /** Local velocity of this object. */
-    var Velocity(default,never):Vector3;
-    /** Local angular velocity of this object (degrees/s) */
-    var AngularVelocity(default,never):Angles;
-    /** Which part of the body this tracked object represents - waist, left shoulder, etc. */
-    var Role(default,never):sandbox.vr.TrackedDeviceRole;
-    /** What type of object this is - tracker, controller, etc. */
-    var Type(default,never):sandbox.vr.TrackedDeviceType;
     overload function Equals(obj:cs.system.Object):Bool;
     overload function Equals(other:sandbox.vr.TrackedObject):Bool;
     overload function Equals(other:sandbox.vr.VRController):Bool;

@@ -2,7 +2,7 @@
 
 /** Entity Tags are strings you can set and check for on any entity. Internally these strings are tokenized and networked so they're also available clientside. */
 @:native("Sandbox.GameTags")
-extern class GameTags {
+extern class GameTags extends sandbox.ITagSet {
     /** Adds multiple tags. Calls EntityTags.Add for each tag. */
     overload function Add(tags:Array<String>):Void;
     overload function Add(tag:String):Void;

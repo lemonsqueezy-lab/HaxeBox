@@ -1,10 +1,8 @@
 ﻿package sandbox;
 
 @:native("Sandbox.DebugOverlaySystem")
-final extern class DebugOverlaySystem {
+final extern class DebugOverlaySystem extends sandbox.GameObjectSystem<sandbox.DebugOverlaySystem> {
     function new(scene:sandbox.Scene):Void;
-    var Scene(default,never):sandbox.Scene;
-    var Id(default,never):system.Guid;
     /** Draw a box */
     overload function Box(box:BBox, color:Color, duration:Single, transform:Transform, overlay:Bool):Void;
     overload function Box(position:Vector3, size:Vector3, color:Color, duration:Single, transform:Transform, overlay:Bool):Void;

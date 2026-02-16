@@ -29,6 +29,7 @@ final extern class NavMesh {
     var AgentStepSize(default,default):Single;
     /** The maximum slope an agent can walk up (in degrees) */
     var AgentMaxSlope(default,default):Single;
+    static function BakeNavMesh():Void;
     /** Computes a navigation path between the specified start and target positions on the navmesh. Uses the same pathfinding algorithm as , taking agent configuration into account if provided. The result is suitable for direct use with . If a complete path cannot be found, the result may indicate an incomplete or failed path. */
     function CalculatePath(request:sandbox.navigation.CalculatePathRequest):sandbox.navigation.NavMeshPath;
     function Dispose():Void;

@@ -2,6 +2,7 @@
 
 @:native("Sandbox.Resources.ResourceCompileContext")
 extern class ResourceCompileContext {
+    @:protected function new():Void;
     /** The absolute path to the resource on disk */
     var AbsolutePath(default,never):String;
     /** The path relative to the assets folder */
@@ -14,6 +15,8 @@ extern class ResourceCompileContext {
     var Data(default,never):sandbox.resources.resourcecompilecontext.DataStream;
     /** Add a reference that is needed to compile this resource, but isn't actually needed once compiled. */
     function AddCompileReference(path:String):Void;
+    /** Add a game file reference. This file will be included in packages but is not a native resource. Use this for arbitrary data files that are loaded by managed code (e.g. navdata files). */
+    function AddGameFileReference(path:String):Void;
     /** Add a reference. This means that the resource we're compiling depends on this resource. */
     function AddRuntimeReference(path:String):Void;
     /** Create a child resource */

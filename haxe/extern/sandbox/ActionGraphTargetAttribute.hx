@@ -1,7 +1,6 @@
 ﻿package sandbox;
 
 @:native("Sandbox.ActionGraphTargetAttribute")
-final extern class ActionGraphTargetAttribute {
+final extern class ActionGraphTargetAttribute extends system.Attribute {
     function new():Void;
-    var TypeId(default,never):cs.system.Object;
 }

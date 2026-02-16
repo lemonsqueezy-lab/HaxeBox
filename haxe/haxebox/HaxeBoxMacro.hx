@@ -1,5 +1,7 @@
 ﻿package;
 
+import haxe.macro.Type.ClassType;
+
 using StringTools;
 
 #if macro
@@ -243,18 +245,9 @@ class HaxeBoxMacro {
 	];
 
 	public static function init() {
-		Compiler.registerCustomMetadata({
-			metadata: "ui.track",
-			doc: "Track field to update UI"
-		});
-		Compiler.registerCustomMetadata({
-			metadata: "ui.markup",
-			doc: "Build UI from markup expression"
-		});
-		Compiler.registerCustomMetadata({
-			metadata: "ui.stylesheet",
-			doc: "Specify location for the stylesheet"
-		});
+		Compiler.registerCustomMetadata({metadata: "ui.track", doc: "Track field to update UI"});
+		Compiler.registerCustomMetadata({metadata: "ui.markup", doc: "Build UI from markup expression"});
+		Compiler.registerCustomMetadata({metadata: "ui.stylesheet", doc: "Specify location for the stylesheet"});
 
 		var project = Context.definedValue("PROJECT_PATH");
 		var haxebox = Context.definedValue("HAXEBOX_PATH");
@@ -266,9 +259,6 @@ class HaxeBoxMacro {
 		if (!FileSystem.exists(src))
 			return;
 
-        Compiler.addClassPath(src);
-		Compiler.include("", true, [], [src], true);
-		Compiler.setOutput(Path.join([src, "__haxe__"]));
 		for (f in FileSystem.readDirectory(src))
 			Compiler.addGlobalMetadata(Path.withoutExtension(f), "@:build(HaxeBoxMacro.build())");
 
@@ -311,6 +301,7 @@ class HaxeBoxMacro {
 		if (cls.name != shortName)
 			clsModule += "." + cls.name;
 
+		var isPanel = isDerivedFromPanel(cls);
 		var tracks = [];
 		var hashBuilder = null;
 		var markups = [];
@@ -328,8 +319,12 @@ class HaxeBoxMacro {
 			cls.meta.remove(":native");
 		cls.meta.add(":native", [macro $v{clsModule}], cls.pos);
 		cls.meta.add(":nativeGen", [], cls.pos);
-		if (cls.meta.has("ui.stylesheet"))
+		if (cls.meta.has("ui.stylesheet")) {
 			stylesheets = cls.meta.extract("ui.stylesheet");
+			if (!isPanel)
+				for (m in stylesheets)
+					Context.warning("This meta will be ignored as the class is not derived from sandbox.PanelComponent or sandbox.ui.Panel", m.pos);
+		}
 
 		for (i in 0...fields.length) {
 			var field = fields[i];
@@ -341,9 +336,15 @@ class HaxeBoxMacro {
 				if (patchMeta(m))
 					continue;
 				else if (m.name == "ui.markup")
-					hasMarkup = true;
+					if (isPanel)
+						hasMarkup = true;
+					else
+						Context.warning("This meta will be ignored as the class is not derived from sandbox.PanelComponent or sandbox.ui.Panel", m.pos);
 				else if (m.name == "ui.track")
-					hasTrack = true;
+					if (isPanel)
+						hasTrack = true;
+					else
+						Context.warning("This meta will be ignored as the class is not derived from sandbox.PanelComponent or sandbox.ui.Panel", m.pos);
 			}
 
 			switch field.kind {
@@ -373,16 +374,27 @@ class HaxeBoxMacro {
 			fields.splice(idx, 1);
 		}
 
-		buildStyleSheets(stylesheets, builderCb, fields);
-		buildTracks(tracks, hashBuilder, fields);
-		var m = buildMarkups(markups, builderRef, fields, classTypes);
-		if (builder != null)
-			builder.expr = macro {
-				${builder.expr};
-				$m;
-			}
+		if (isPanel) {
+			buildStyleSheets(stylesheets, builderCb, fields);
+			buildTracks(tracks, hashBuilder, fields);
+			var m = buildMarkups(markups, builderRef, fields, classTypes);
+			if (builder != null)
+				builder.expr = macro {
+					${builder.expr};
+					$m;
+				}
+		}
 
 		return fields;
+	}
+
+	static function isDerivedFromPanel(cls:ClassType) {
+		var sup = cls.superClass?.t.get();
+		if (sup == null)
+			return cls.module == "sandbox.PanelComponent" || cls.module == "sandbox.ui.Panel";
+		if (cls.module == "sandbox.PanelComponent" || cls.module == "sandbox.ui.Panel")
+			return true;
+		return isDerivedFromPanel(sup);
 	}
 
 	static function patchMeta(m:MetadataEntry) {

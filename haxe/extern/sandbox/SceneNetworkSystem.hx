@@ -2,7 +2,7 @@
 
 /** This is created and referenced by the network system, as a way to route. */
 @:native("Sandbox.SceneNetworkSystem")
-extern class SceneNetworkSystem {
+extern class SceneNetworkSystem extends sandbox.network.GameNetworkSystem {
     function AcceptConnection(channel:sandbox.Connection, reason:String):Bool;
     function Dispose():Void;
     function GetMountedVPKs(source:sandbox.Connection, msg:sandbox.network.MountedVPKsResponse):Void;

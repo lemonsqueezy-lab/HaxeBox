@@ -2,11 +2,10 @@
 
 /** See . */
 @:native("Sandbox.Utility.Svg.QuadToPathCommand")
-extern class QuadToPathCommand {
+extern class QuadToPathCommand extends sandbox.utility.svg.PathCommand {
     /** See . */
-    function new(X0:Single, Y0:Single, X1:Single, Y1:Single):Void;
-    @:protected
-    var EqualityContract(null,never):cs.system.Type;
+    overload function new(X0:Single, Y0:Single, X1:Single, Y1:Single):Void;
+    @:protected overload function new(original:sandbox.utility.svg.QuadToPathCommand):Void;
     var X0(default,default):Single;
     var Y0(default,default):Single;
     var X1(default,default):Single;

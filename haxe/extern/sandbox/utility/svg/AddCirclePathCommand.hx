@@ -2,11 +2,10 @@
 
 /** See . */
 @:native("Sandbox.Utility.Svg.AddCirclePathCommand")
-extern class AddCirclePathCommand {
+extern class AddCirclePathCommand extends sandbox.utility.svg.PathCommand {
     /** See . */
-    function new(X:Single, Y:Single, Radius:Single):Void;
-    @:protected
-    var EqualityContract(null,never):cs.system.Type;
+    overload function new(X:Single, Y:Single, Radius:Single):Void;
+    @:protected overload function new(original:sandbox.utility.svg.AddCirclePathCommand):Void;
     var X(default,default):Single;
     var Y(default,default):Single;
     var Radius(default,default):Single;

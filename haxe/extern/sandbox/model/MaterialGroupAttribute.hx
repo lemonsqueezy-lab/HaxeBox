@@ -2,8 +2,7 @@
 
 /** Used to mark a property as a material group, for the editor */
 @:native("Sandbox.Model.MaterialGroupAttribute")
-final extern class MaterialGroupAttribute {
+final extern class MaterialGroupAttribute extends system.Attribute {
     function new():Void;
     var ModelParameter(default,default):String;
-    var TypeId(default,never):cs.system.Object;
 }

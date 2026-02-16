@@ -2,6 +2,7 @@
 
 @:native("Sandbox.Hotload.InstanceUpgrader")
 extern class InstanceUpgrader {
+    @:protected function new():Void;
     @:protected
     var DefaultUpgrader(null,never):sandbox.upgraders.DefaultUpgrader;
     @:protected

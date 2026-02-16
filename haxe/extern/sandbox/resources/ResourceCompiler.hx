@@ -3,6 +3,7 @@
 /** Takes the "source" of a resource and creates a compiled version. The compiled version can create a number of child resources and store binary data. */
 @:native("Sandbox.Resources.ResourceCompiler")
 extern class ResourceCompiler {
+    @:protected function new():Void;
     var Context(default,never):sandbox.resources.ResourceCompileContext;
     @:protected function Compile():system.threading.tasks.Task1<Bool>;
     @:protected function CompileEmbedded(json:sandbox.resources.EmbeddedResource):Bool;

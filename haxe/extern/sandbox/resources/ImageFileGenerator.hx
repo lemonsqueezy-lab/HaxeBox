@@ -2,7 +2,7 @@
 
 /** Load images from disk and convert them to textures */
 @:native("Sandbox.Resources.ImageFileGenerator")
-extern class ImageFileGenerator {
+extern class ImageFileGenerator extends sandbox.resources.TextureGenerator {
     function new():Void;
     /** The path to the image file, relative to any other assets in the project. */
     var FilePath(default,default):String;
@@ -42,8 +42,6 @@ extern class ImageFileGenerator {
     var Colorize(default,default):Bool;
     /** When is enabled, this is the target color that every pixel in the image will be re-colored to. */
     var TargetColor(default,default):Color;
-    var CacheToDisk(default,never):Bool;
-    var UseMemoryCache(default,never):Bool;
     function CreateEmbeddedResource():Null<sandbox.resources.EmbeddedResource>;
     @:protected function CreateTexture(options:sandbox.resources.resourcegenerator.Options, ct:system.threading.CancellationToken):system.threading.tasks.ValueTask1<sandbox.Texture>;
 }

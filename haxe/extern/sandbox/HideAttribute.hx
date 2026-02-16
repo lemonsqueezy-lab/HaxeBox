@@ -2,9 +2,6 @@
 
 /** Hide this in tools/editors. */
 @:native("Sandbox.HideAttribute")
-final extern class HideAttribute {
+final extern class HideAttribute extends TagAttribute {
     function new():Void;
-    /** The tags to add for this type or member. */
-    var Value(default,never):Array<String>;
-    var TypeId(default,never):cs.system.Object;
 }

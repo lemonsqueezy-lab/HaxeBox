@@ -3,6 +3,7 @@
 /** A bone in a . */
 @:native("Sandbox.BoneCollection.Bone")
 extern class Bone {
+    @:protected function new():Void;
     /** Numerical index of this bone. */
     var Index(default,never):Int;
     /** Name of this bone. */

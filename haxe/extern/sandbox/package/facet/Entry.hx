@@ -4,7 +4,8 @@
 @:native("Sandbox.Package.Facet.Entry")
 extern class Entry {
     /** A facet entry consists of a name, display information and the number of items inside */
-    function new(Name:String, Title:String, Icon:String, Count:Int, Children:system.collections.generic.List<sandbox.package.facet.Entry>):Void;
+    overload function new(Name:String, Title:String, Icon:String, Count:Int, Children:system.collections.generic.List<sandbox.package.facet.Entry>):Void;
+    @:protected overload function new(original:sandbox.package.facet.Entry):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     var Name(default,default):String;

@@ -4,7 +4,8 @@
 @:native("Sandbox.CodeArchive.AdditionalFile")
 extern class AdditionalFile {
     /** Represents a file to send to the compiler along with all the code. This is usually something that the generator turns into code, such as a Razor file. */
-    function new(Text:String, LocalPath:String):Void;
+    overload function new(Text:String, LocalPath:String):Void;
+    @:protected overload function new(original:sandbox.codearchive.AdditionalFile):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     var Text(default,default):String;

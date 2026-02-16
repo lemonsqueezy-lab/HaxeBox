@@ -4,7 +4,8 @@
 @:native("Sandbox.Utility.Noise.Parameters")
 extern class Parameters {
     /** Parameters for constructing a noise field. Use if you want a noise field made from multiple octaves. */
-    function new(Seed:Int, Frequency:Single):Void;
+    overload function new(Seed:Int, Frequency:Single):Void;
+    @:protected overload function new(original:sandbox.utility.noise.Parameters):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     /** Seed state to initialize the field with. */

@@ -1,7 +1,7 @@
 ﻿package sandbox;
 
 @:native("Sandbox.LibraryAttribute")
-extern class LibraryAttribute {
+extern class LibraryAttribute extends system.Attribute {
     overload function new():Void;
     overload function new(name:String):Void;
     /** This is the name that will be used to create this class. If you don't set it via the attribute constructor it will be set to the name of the class it's attached to */
@@ -16,5 +16,4 @@ extern class LibraryAttribute {
     var Group(default,default):String;
     /** We use this to filter entities to show in the entity list in the editor */
     var Editable(default,default):Bool;
-    var TypeId(default,never):cs.system.Object;
 }

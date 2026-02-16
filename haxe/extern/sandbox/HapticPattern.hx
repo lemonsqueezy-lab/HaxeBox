@@ -4,7 +4,8 @@
 @:native("Sandbox.HapticPattern")
 extern class HapticPattern {
     /** Contains a haptic pattern, which consists of frequency and amplitude values that can change over time. */
-    function new(Length:Single, FrequencyCurve:sandbox.Curve, AmplitudeCurve:sandbox.Curve):Void;
+    overload function new(Length:Single, FrequencyCurve:sandbox.Curve, AmplitudeCurve:sandbox.Curve):Void;
+    @:protected overload function new(original:sandbox.HapticPattern):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     var Length(default,default):Single;

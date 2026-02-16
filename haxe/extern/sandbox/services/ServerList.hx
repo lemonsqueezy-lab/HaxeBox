@@ -1,12 +1,9 @@
 ﻿package sandbox.services;
 
 @:native("Sandbox.Services.ServerList")
-extern class ServerList {
+extern class ServerList extends system.collections.generic.List<sandbox.services.serverlist.Entry> {
     function new():Void;
     var IsQuerying(default,never):Bool;
-    var Capacity(default,default):Int;
-    var Count(default,never):Int;
-    var Item(default,default):sandbox.services.serverlist.Entry;
     function AddFilter(key:String, value:String):Void;
     function Dispose():Void;
     @:protected function Finalize():Void;

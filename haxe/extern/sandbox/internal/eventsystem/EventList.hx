@@ -2,9 +2,6 @@
 
 /** A list of events, usually indexed by the event name */
 @:native("Sandbox.Internal.EventSystem.EventList")
-extern class EventList {
+extern class EventList extends system.collections.generic.List<sandbox.internal.eventsystem.EventAction> {
     function new():Void;
-    var Capacity(default,default):Int;
-    var Count(default,never):Int;
-    var Item(default,default):sandbox.internal.eventsystem.EventAction;
 }

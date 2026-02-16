@@ -1,20 +1,8 @@
 ﻿package sandbox.upgraders;
 
 @:native("Sandbox.Upgraders.CachedUpgrader")
-extern class CachedUpgrader {
+extern class CachedUpgrader extends sandbox.hotload.InstanceUpgrader {
     function new():Void;
-    @:protected
-    var DefaultUpgrader(null,never):sandbox.upgraders.DefaultUpgrader;
-    @:protected
-    var CachedUpgrader(null,never):sandbox.upgraders.CachedUpgrader;
-    var IsInitialized(default,never):Bool;
-    var TracePaths(default,never):Bool;
-    var CurrentPath(default,default):sandbox.hotload.ReferencePath;
-    var CurrentSrcField(default,default):system.reflection.FieldInfo;
-    var CurrentDstField(default,default):system.reflection.FieldInfo;
-    /** A mapping of assembles to swap with new versions. */
-    @:protected
-    var Swaps(null,never):system.collections.generic.IReadOnlyDictionary<system.reflection.Assembly,system.reflection.Assembly>;
     function AddCachedInstance(inst:cs.system.Object, cached:cs.system.Object):Void;
     @:protected function OnClearCache():Void;
     @:protected function OnTryCreateNewInstance(oldInstance:cs.system.Object, newInstance:cs.system.Object):Bool;

@@ -3,6 +3,7 @@
 /** Represents a physically tracked VR object with a transform */
 @:native("Sandbox.VR.TrackedObject")
 extern class TrackedObject {
+    @:protected function new(original:sandbox.vr.TrackedObject):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     /** Whether or not this object is currently accessible (if false, then the transform will not update). */
@@ -11,8 +12,10 @@ extern class TrackedObject {
     var Velocity(default,never):Vector3;
     /** Local angular velocity of this object (degrees/s) */
     var AngularVelocity(default,never):Angles;
-    /** The position and rotation of this tracked object in world space (based on the anchor position) */
+    /** The grip pose transform of this tracked object in world space (centered on palm/grip). This is the default transform used for hand positioning. */
     var Transform(default,never):Transform;
+    /** The aim pose transform of this tracked object in world space (pointing forward). Use this for aiming, pointing, or ray casting. */
+    var AimTransform(default,never):Transform;
     /** Which part of the body this tracked object represents - waist, left shoulder, etc. */
     var Role(default,never):sandbox.vr.TrackedDeviceRole;
     /** What type of object this is - tracker, controller, etc. */

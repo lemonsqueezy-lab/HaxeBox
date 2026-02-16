@@ -4,7 +4,8 @@
 @:native("Sandbox.Package.Facet")
 extern class Facet {
     /** Describes a facet of a group of items, with a limited number of each facet with their total item counts */
-    function new(Name:String, Title:String, Entries:Array<sandbox.package.facet.Entry>):Void;
+    overload function new(Name:String, Title:String, Entries:Array<sandbox.package.facet.Entry>):Void;
+    @:protected overload function new(original:sandbox.package.Facet):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     var Name(default,default):String;

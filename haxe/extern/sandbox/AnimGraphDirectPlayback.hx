@@ -3,6 +3,7 @@
 /** For communicating with a Direct Playback Anim Node, which allows code to tell it to play a given sequence */
 @:native("Sandbox.AnimGraphDirectPlayback")
 extern class AnimGraphDirectPlayback {
+    @:protected function new():Void;
     /** Set the time at which the currently playing sequence should have had a cycle of zero. This will adjust the current cycle of the sequence to match. */
     var StartTime(never,default):Single;
     /** Get the cycle of the currently playing sequence. Will return 0 if no sequence is playing. */

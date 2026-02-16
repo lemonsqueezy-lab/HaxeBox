@@ -3,6 +3,7 @@
 /** Keyboard (and mouse) key press . */
 @:native("Sandbox.UI.ButtonEvent")
 extern class ButtonEvent {
+    @:protected function new(original:sandbox.ui.ButtonEvent):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     /** The button that triggered the event. */

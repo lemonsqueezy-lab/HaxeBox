@@ -1,8 +1,7 @@
 ﻿package sandbox;
 
 @:native("Sandbox.PropertyAccessorBodyChangeAttribute")
-final extern class PropertyAccessorBodyChangeAttribute {
+final extern class PropertyAccessorBodyChangeAttribute extends system.Attribute {
     function new(accessor:sandbox.PropertyAccessor):Void;
     var Accessor(default,never):sandbox.PropertyAccessor;
-    var TypeId(default,never):cs.system.Object;
 }

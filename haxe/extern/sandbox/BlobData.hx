@@ -3,6 +3,7 @@
 /** Base class for properties that should be serialized to binary format instead of JSON. Used for large data structures that would be inefficient as JSON. */
 @:native("Sandbox.BlobData")
 extern class BlobData {
+    @:protected function new():Void;
     /** The version of this binary data format. Used for upgrade paths. */
     var Version(default,never):Int;
     function Deserialize(reader:sandbox.blobdata.Reader):Void;

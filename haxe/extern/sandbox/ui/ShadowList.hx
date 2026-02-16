@@ -2,11 +2,8 @@
 
 /** A list of shadows */
 @:native("Sandbox.UI.ShadowList")
-final extern class ShadowList {
+final extern class ShadowList extends system.collections.generic.List<sandbox.ui.Shadow> {
     function new():Void;
-    var Capacity(default,default):Int;
-    var Count(default,never):Int;
-    var Item(default,default):sandbox.ui.Shadow;
     var IsNone(default,default):Bool;
     /** Copy shadows from another list of shadows. */
     function AddFrom(other:sandbox.ui.ShadowList):Void;

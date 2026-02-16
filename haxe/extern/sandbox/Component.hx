@@ -3,6 +3,7 @@
 /** A GameObject can have many components, which are the building blocks of the game. */
 @:native("Sandbox.Component")
 extern class Component {
+    @:protected function new():Void;
     /** The scene this Component is in. This is a shortcut for `GameObject.Scene`. */
     var Scene(default,never):sandbox.Scene;
     /** The transform of the GameObject this component belongs to. Components don't have their own transforms but they can access the transform of the GameObject they belong to. This is a shortcut for `GameObject.Transform`. */

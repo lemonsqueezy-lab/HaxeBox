@@ -3,6 +3,7 @@
 /** Project configuration data is derived from this class */
 @:native("Sandbox.ConfigData")
 extern class ConfigData {
+    @:protected function new():Void;
     var Guid(default,default):system.Guid;
     var Version(default,never):Int;
     function Deserialize(json:String):Void;

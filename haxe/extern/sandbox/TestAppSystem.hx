@@ -1,9 +1,7 @@
 ﻿package sandbox;
 
 @:native("Sandbox.TestAppSystem")
-extern class TestAppSystem {
+extern class TestAppSystem extends sandbox.AppSystem {
     function new():Void;
-    @:protected
-    var log(null,null):sandbox.diagnostics.Logger;
     function Init():Void;
 }

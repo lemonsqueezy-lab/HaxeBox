@@ -1,7 +1,6 @@
 ﻿package sandbox;
 
 @:native("Sandbox.MethodBodyChangeAttribute")
-final extern class MethodBodyChangeAttribute {
+final extern class MethodBodyChangeAttribute extends system.Attribute {
     function new():Void;
-    var TypeId(default,never):cs.system.Object;
 }

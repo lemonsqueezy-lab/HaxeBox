@@ -2,11 +2,10 @@
 
 /** See . */
 @:native("Sandbox.Utility.Svg.AddRoundRectPathCommand")
-extern class AddRoundRectPathCommand {
+extern class AddRoundRectPathCommand extends sandbox.utility.svg.PathCommand {
     /** See . */
-    function new(Rect:sandbox.Rect, Rx:Single, Ry:Single):Void;
-    @:protected
-    var EqualityContract(null,never):cs.system.Type;
+    overload function new(Rect:sandbox.Rect, Rx:Single, Ry:Single):Void;
+    @:protected overload function new(original:sandbox.utility.svg.AddRoundRectPathCommand):Void;
     var Rect(default,default):sandbox.Rect;
     var Rx(default,default):Single;
     var Ry(default,default):Single;

@@ -3,6 +3,7 @@
 /** Provides ability to generate a physics joint for a at runtime. */
 @:native("Sandbox.PhysicsJointBuilder")
 extern class PhysicsJointBuilder {
+    @:protected function new():Void;
     /** The index of the first body connected by the joint. */
     var Body1(default,default):Int;
     /** The index of the second body connected by the joint. */

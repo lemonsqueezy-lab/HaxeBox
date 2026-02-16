@@ -2,8 +2,7 @@
 
 /** Scales the vector with the "ScaleAndMirror" node. */
 @:native("Sandbox.ModelEditor.ScaleWorldAttribute")
-extern class ScaleWorldAttribute {
+extern class ScaleWorldAttribute extends editor.FieldMetaDataAttribute {
     function new():Void;
-    var TypeId(default,never):cs.system.Object;
     function AddMetaData(meta_data:system.collections.generic.Dictionary<String,String>):Void;
 }

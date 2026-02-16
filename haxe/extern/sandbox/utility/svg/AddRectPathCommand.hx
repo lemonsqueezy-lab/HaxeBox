@@ -2,11 +2,10 @@
 
 /** See . */
 @:native("Sandbox.Utility.Svg.AddRectPathCommand")
-extern class AddRectPathCommand {
+extern class AddRectPathCommand extends sandbox.utility.svg.PathCommand {
     /** See . */
-    function new(Rect:sandbox.Rect):Void;
-    @:protected
-    var EqualityContract(null,never):cs.system.Type;
+    overload function new(Rect:sandbox.Rect):Void;
+    @:protected overload function new(original:sandbox.utility.svg.AddRectPathCommand):Void;
     var Rect(default,default):sandbox.Rect;
     function Deconstruct(Rect:sandbox.Rect):Void;
     overload function Equals(obj:cs.system.Object):Bool;

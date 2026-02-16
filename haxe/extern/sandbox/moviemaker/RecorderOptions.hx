@@ -2,7 +2,8 @@
 
 @:native("Sandbox.MovieMaker.RecorderOptions")
 extern class RecorderOptions {
-    function new(SampleRate:Int):Void;
+    overload function new(SampleRate:Int):Void;
+    @:protected overload function new(original:sandbox.moviemaker.RecorderOptions):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     var SampleRate(default,default):Int;

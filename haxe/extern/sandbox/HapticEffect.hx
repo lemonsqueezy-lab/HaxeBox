@@ -3,7 +3,8 @@
 /** Contains a haptic effect, which consists of patterns for the controller and triggers. */
 @:native("Sandbox.HapticEffect")
 extern class HapticEffect {
-    function new(controllerPattern:sandbox.HapticPattern, leftTriggerPattern:sandbox.HapticPattern, rightTriggerPattern:sandbox.HapticPattern):Void;
+    @:protected overload function new(original:sandbox.HapticEffect):Void;
+    overload function new(controllerPattern:sandbox.HapticPattern, leftTriggerPattern:sandbox.HapticPattern, rightTriggerPattern:sandbox.HapticPattern):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     var AmplitudeScale(never,default):Single;

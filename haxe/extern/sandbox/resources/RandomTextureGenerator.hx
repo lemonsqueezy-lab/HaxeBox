@@ -1,7 +1,7 @@
 ﻿package sandbox.resources;
 
 @:native("Sandbox.Resources.RandomTextureGenerator")
-extern class RandomTextureGenerator {
+extern class RandomTextureGenerator extends sandbox.resources.TextureGenerator {
     function new():Void;
     var Type(default,default):sandbox.resources.randomtexturegenerator.NoiseType;
     var Seed(default,default):Int;
@@ -12,8 +12,6 @@ extern class RandomTextureGenerator {
     var Gradient(default,default):sandbox.Gradient;
     var ConvertHeightToNormals(default,default):Bool;
     var NormalScale(default,default):Single;
-    var CacheToDisk(default,never):Bool;
-    var UseMemoryCache(default,never):Bool;
     @:protected function CreateTexture(options:sandbox.resources.resourcegenerator.Options, ct:system.threading.CancellationToken):system.threading.tasks.ValueTask1<sandbox.Texture>;
     static function IntToRandomFloat(seed:haxe.Int64):Single;
 }

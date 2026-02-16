@@ -2,8 +2,7 @@
 
 /** A material. Uses several s and a with specific settings for more interesting visual effects. */
 @:native("Sandbox.Material")
-final extern class Material {
-    var IsValid(default,never):Bool;
+final extern class Material extends sandbox.Resource {
     /** Name (or path) of the material. */
     var Name(default,never):String;
     /** Access to all of the attributes of this material. */
@@ -16,19 +15,6 @@ final extern class Material {
     var FirstTexture(default,never):sandbox.Texture;
     /** Gets the material's shader */
     var Shader(default,default):sandbox.Shader;
-    /** ID of this resource, */
-    @:protected
-    var ResourceId(default,null):Int;
-    /** Path to this resource. */
-    @:protected
-    var ResourcePath(default,null):String;
-    /** File name of the resource without the extension. */
-    @:protected
-    var ResourceName(default,null):String;
-    /** True if this resource has been changed but the changes aren't written to disk */
-    var HasUnsavedChanges(default,never):Bool;
-    /** Embedded data for this resource */
-    var EmbeddedResource(default,default):Null<sandbox.resources.EmbeddedResource>;
     /** Create a new empty material at runtime. */
     static function Create(materialName:String, shader:String, anonymous:Bool):sandbox.Material;
     /** Create a copy of this material */

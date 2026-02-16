@@ -1,9 +1,7 @@
 ﻿package sandbox;
 
 @:native("Sandbox.CursorSettings")
-extern class CursorSettings {
+extern class CursorSettings extends sandbox.ConfigData {
     function new():Void;
-    var Version(default,never):Int;
     var Cursors(default,default):system.collections.generic.Dictionary<String,sandbox.cursorsettings.Cursor>;
-    var Guid(default,default):system.Guid;
 }

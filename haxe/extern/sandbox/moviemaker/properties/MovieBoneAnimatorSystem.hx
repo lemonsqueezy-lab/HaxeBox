@@ -2,10 +2,8 @@
 
 /** Coordinates playing bone animations from s. Holds a for s in the scene, which store any movie-controlled bone transforms. */
 @:native("Sandbox.MovieMaker.Properties.MovieBoneAnimatorSystem")
-final extern class MovieBoneAnimatorSystem {
+final extern class MovieBoneAnimatorSystem extends sandbox.GameObjectSystem<sandbox.moviemaker.properties.MovieBoneAnimatorSystem> {
     function new(scene:sandbox.Scene):Void;
-    var Scene(default,never):sandbox.Scene;
-    var Id(default,never):system.Guid;
     /** Clears all movie-driven bone transformations for the given . */
     function ClearBones(renderer:sandbox.SkinnedModelRenderer):Void;
     /** Gets the current movie-driven parent-space transform for the given bone. If this bone isn't currently being controlled by a movie, returns its current transform. */

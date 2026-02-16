@@ -1,8 +1,6 @@
 ﻿package sandbox.upgraders;
 
 @:native("Sandbox.Upgraders.ReflectionUpgraderGroup")
-extern class ReflectionUpgraderGroup {
+extern class ReflectionUpgraderGroup extends sandbox.upgraders.UpgraderGroup {
     function new():Void;
-    var IsInitialized(default,never):Bool;
-    var Hotload(default,never):sandbox.Hotload;
 }

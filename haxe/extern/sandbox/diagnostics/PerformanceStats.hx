@@ -24,6 +24,4 @@ final extern class PerformanceStats {
     static var ApproximateProcessMemoryUsage(default,never):system.UInt64;
     /** Performance statistics over the last period, which is dictated by "perf_time" console command. */
     static var LastSecond(default,never):sandbox.diagnostics.performancestats.Block;
-    /** Stats retrieved from the SteamVR compositor */
-    static var VR(default,never):sandbox.diagnostics.performancestats.VRStats;
 }

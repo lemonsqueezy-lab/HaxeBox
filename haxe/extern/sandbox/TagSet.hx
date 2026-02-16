@@ -1,7 +1,7 @@
 ﻿package sandbox;
 
 @:native("Sandbox.TagSet")
-extern class TagSet {
+extern class TagSet extends sandbox.ITagSet {
     overload function new():Void;
     overload function new(tags:system.collections.generic.IEnumerable<String>):Void;
     var IsEmpty(default,never):Bool;

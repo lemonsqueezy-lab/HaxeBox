@@ -3,6 +3,8 @@
 /** Base class for SVG path commands. */
 @:native("Sandbox.Utility.Svg.PathCommand")
 extern class PathCommand {
+    @:protected overload function new():Void;
+    @:protected overload function new(original:sandbox.utility.svg.PathCommand):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     overload function Equals(obj:cs.system.Object):Bool;

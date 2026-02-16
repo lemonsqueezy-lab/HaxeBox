@@ -2,6 +2,7 @@
 
 @:native("Sandbox.AnimationSequence")
 extern class AnimationSequence {
+    @:protected function new():Void;
     /** The duration of the currently playing sequence (seconds) */
     var Duration(default,never):Single;
     /** Get whether the current animation sequence has finished */

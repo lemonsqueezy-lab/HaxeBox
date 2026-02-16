@@ -3,6 +3,7 @@
 /** Used to access and manipulate morphs. */
 @:native("Sandbox.MorphCollection")
 extern class MorphCollection {
+    @:protected function new():Void;
     /** Amount of morphs. */
     var Count(default,never):Int;
     /** Get indexed morph value (Note: Currently, this only gets the override morph value) */

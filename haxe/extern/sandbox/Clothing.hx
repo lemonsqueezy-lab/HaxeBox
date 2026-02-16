@@ -2,7 +2,7 @@
 
 /** Describes an item of clothing and implicitly which other items it can be worn with */
 @:native("Sandbox.Clothing")
-final extern class Clothing {
+final extern class Clothing extends sandbox.GameResource {
     function new():Void;
     var HasHumanSkin(default,default):Bool;
     /** Model to replace the human skin with */
@@ -57,28 +57,6 @@ final extern class Clothing {
     var SteamItemDefinitionId(default,default):Null<Int>;
     /** Icon for this clothing piece. */
     var Icon(default,default):sandbox.clothing.IconSetup;
-    /** True if this resource has changed but the changes aren't written to disk */
-    var HasUnsavedChanges(default,never):Bool;
-    /** Target type used for any action graphs contained in this resource. Defaults to this resource's type. */
-    @:protected
-    var ActionGraphTargetType(null,never):cs.system.Type;
-    /** Target instance used for any action graphs contained in this resource. Defaults to this resource itself. */
-    @:protected
-    var ActionGraphTarget(null,never):cs.system.Object;
-    /** The version of the component. Used by . */
-    var ResourceVersion(default,never):Int;
-    var IsValid(default,never):Bool;
-    /** ID of this resource, */
-    @:protected
-    var ResourceId(default,null):Int;
-    /** Path to this resource. */
-    @:protected
-    var ResourcePath(default,null):String;
-    /** File name of the resource without the extension. */
-    @:protected
-    var ResourceName(default,null):String;
-    /** Embedded data for this resource */
-    var EmbeddedResource(default,default):Null<sandbox.resources.EmbeddedResource>;
     /** Return true if this item of clothing can be worn with the target item, at the same time. */
     function CanBeWornWith(target:sandbox.Clothing):Bool;
     @:protected function CreateAssetTypeIcon(width:Int, height:Int):sandbox.Bitmap;

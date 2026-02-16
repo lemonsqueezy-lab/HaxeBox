@@ -3,6 +3,7 @@
 /** Gets and Sets a value from somewhere. */
 @:native("Sandbox.Bind.Proxy")
 extern class Proxy {
+    @:protected function new():Void;
     /** The object to read data from and write data to. */
     var Target(default,default):system.WeakReference<cs.system.Object>;
     /** Debug name for this property */

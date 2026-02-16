@@ -2,7 +2,7 @@
 
 /** Sets the category or the group of a type or a type member. This info can then be retrieved via DisplayInfo library. */
 @:native("Sandbox.FeatureAttribute")
-extern class FeatureAttribute {
+extern class FeatureAttribute extends system.Attribute {
     function new(value:String):Void;
     /** How we will group features together */
     var Identifier(default,default):String;
@@ -14,5 +14,4 @@ extern class FeatureAttribute {
     var Icon(default,default):String;
     /** The color of the feature button. Helps group things, helps things to stand out. Defaults to white. */
     var Tint(default,default):sandbox.EditorTint;
-    var TypeId(default,never):cs.system.Object;
 }

@@ -1,22 +1,8 @@
 ﻿package;
 
 @:native("QuakeMount")
-extern class QuakeMount {
+extern class QuakeMount extends sandbox.mounting.BaseGameMount {
     function new():Void;
-    var Ident(default,never):String;
-    var Title(default,never):String;
-    /** True if this source is installed on the system and can be mounted. */
-    @:protected
-    var IsInstalled(default,null):Bool;
-    /** True if this is currently active and mounted */
-    @:protected
-    var IsMounted(default,null):Bool;
-    /** Allows logging for this specific asset source */
-    @:protected
-    var Log(null,null):sandbox.diagnostics.Logger;
-    /** All of the resources in this game */
-    var Resources(default,never):system.collections.generic.IReadOnlyCollection<sandbox.mounting.ResourceLoader<Dynamic>>;
-    var RootFolder(default,never):sandbox.mounting.ResourceFolder;
     function FileExists(pakDir:String, filename:String):Bool;
     function GetFileBytes(pakDir:String, filename:String):Array<Int>;
     function GetFileStream(pakFolder:String, filename:String):system.io.Stream;

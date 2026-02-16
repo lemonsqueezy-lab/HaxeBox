@@ -1,17 +1,16 @@
+#nullable enable
+
 using System;
 using System.IO;
 
-sealed class Watcher : IDisposable
-{
+sealed class Watcher : IDisposable {
     private readonly FileSystemWatcher watcher;
     private readonly Action<string> onChange;
 
-    public Watcher(string path, string[] filters, Action<string> onChange)
-    {
+    public Watcher(string path, string[] filters, Action<string> onChange) {
         this.onChange = onChange;
 
-        watcher = new FileSystemWatcher(path)
-        {
+        watcher = new FileSystemWatcher(path) {
             IncludeSubdirectories = true,
             InternalBufferSize = 64 * 1024,
             NotifyFilter =
@@ -32,13 +31,11 @@ sealed class Watcher : IDisposable
 
     public void Stop() => watcher.EnableRaisingEvents = false;
 
-    private void OnFs(object sender, FileSystemEventArgs e)
-    {
+    private void OnFs(object sender, FileSystemEventArgs e) {
         onChange(e.FullPath);
     }
 
-    private void OnError(object sender, ErrorEventArgs e)
-    {
+    private void OnError(object sender, ErrorEventArgs e) {
         if (e.GetException() is InternalBufferOverflowException) {
             HaxeBox.logger.Warning("Code watcher overflow, scheduling full rebuild");
             onChange(string.Empty);
@@ -48,8 +45,7 @@ sealed class Watcher : IDisposable
         HaxeBox.logger.Error("Code watcher error: " + e.GetException().Message);
     }
 
-    public void Dispose()
-    {
+    public void Dispose() {
         Stop();
         watcher.Changed -= OnFs;
         watcher.Created -= OnFs;

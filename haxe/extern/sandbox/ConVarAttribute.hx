@@ -2,7 +2,7 @@
 
 /** Console variable */
 @:native("Sandbox.ConVarAttribute")
-extern class ConVarAttribute {
+extern class ConVarAttribute extends system.Attribute {
     overload function new(name:String, flags:sandbox.ConVarFlags):Void;
     overload function new(flags:sandbox.ConVarFlags):Void;
     /** If unset the name will be set to the name of the method/property */
@@ -17,5 +17,4 @@ extern class ConVarAttribute {
     var Saved(default,default):Bool;
     /** Describes the kind of convar this is */
     var Flags(default,default):sandbox.ConVarFlags;
-    var TypeId(default,never):cs.system.Object;
 }

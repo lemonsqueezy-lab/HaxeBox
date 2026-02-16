@@ -2,6 +2,7 @@
 
 @:native("Sandbox.ITagSet")
 extern class ITagSet {
+    @:protected function new():Void;
     /** Add a tag to the set. */
     overload function Add(tag:String):Void;
     overload function Add(set:sandbox.ITagSet):Void;

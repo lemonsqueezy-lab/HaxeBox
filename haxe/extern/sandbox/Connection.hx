@@ -3,6 +3,7 @@
 /** A connection, usually to a server or a client. */
 @:native("Sandbox.Connection")
 extern class Connection {
+    @:protected function new():Void;
     /** This connection's unique identifier. */
     @:protected
     var Id(default,null):system.Guid;

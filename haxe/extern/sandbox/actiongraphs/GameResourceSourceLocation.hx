@@ -4,7 +4,8 @@
 @:native("Sandbox.ActionGraphs.GameResourceSourceLocation")
 extern class GameResourceSourceLocation {
     /** Source location for action graphs that belong to a . These can include scenes and prefabs, or custom resources. This is used for stack traces, and for knowing which asset to save when editing a graph. */
-    function new(Resource:sandbox.GameResource):Void;
+    overload function new(Resource:sandbox.GameResource):Void;
+    @:protected overload function new(original:sandbox.actiongraphs.GameResourceSourceLocation):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     /** Resource that contains action graphs. */

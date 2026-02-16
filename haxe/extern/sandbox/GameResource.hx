@@ -2,9 +2,8 @@
 
 /** Assets defined in C# and created through tools. You can define your own Custom Asset Types. */
 @:native("Sandbox.GameResource")
-extern class GameResource {
-    /** True if this resource has changed but the changes aren't written to disk */
-    var HasUnsavedChanges(default,never):Bool;
+extern class GameResource extends sandbox.Resource {
+    @:protected function new():Void;
     /** Target type used for any action graphs contained in this resource. Defaults to this resource's type. */
     @:protected
     var ActionGraphTargetType(null,never):cs.system.Type;
@@ -13,18 +12,6 @@ extern class GameResource {
     var ActionGraphTarget(null,never):cs.system.Object;
     /** The version of the component. Used by . */
     var ResourceVersion(default,never):Int;
-    var IsValid(default,never):Bool;
-    /** ID of this resource, */
-    @:protected
-    var ResourceId(default,null):Int;
-    /** Path to this resource. */
-    @:protected
-    var ResourcePath(default,null):String;
-    /** File name of the resource without the extension. */
-    @:protected
-    var ResourceName(default,null):String;
-    /** Embedded data for this resource */
-    var EmbeddedResource(default,default):Null<sandbox.resources.EmbeddedResource>;
     /** Deserialize values from a JsonObject */
     function Deserialize(jso:system.text.json.nodes.JsonObject):Void;
     /** Get a list of packages that are needed to load this asset */

@@ -2,11 +2,10 @@
 
 /** See . */
 @:native("Sandbox.Utility.Svg.MoveToPathCommand")
-extern class MoveToPathCommand {
+extern class MoveToPathCommand extends sandbox.utility.svg.PathCommand {
     /** See . */
-    function new(X:Single, Y:Single):Void;
-    @:protected
-    var EqualityContract(null,never):cs.system.Type;
+    overload function new(X:Single, Y:Single):Void;
+    @:protected overload function new(original:sandbox.utility.svg.MoveToPathCommand):Void;
     var X(default,default):Single;
     var Y(default,default):Single;
     function Deconstruct(X:Single, Y:Single):Void;

@@ -2,7 +2,8 @@
 
 @:native("Sandbox.ReflectionQueryCache.SyncVarPropertyAndAttribute")
 extern class SyncVarPropertyAndAttribute {
-    function new(Property:system.reflection.PropertyInfo, Attribute:sandbox.SyncAttribute):Void;
+    @:protected overload function new(original:sandbox.reflectionquerycache.SyncVarPropertyAndAttribute):Void;
+    overload function new(Property:system.reflection.PropertyInfo, Attribute:sandbox.SyncAttribute):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     var Property(default,default):system.reflection.PropertyInfo;

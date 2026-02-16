@@ -2,12 +2,11 @@
 
 /** Validates a property using a method. */
 @:native("ValidateAttribute")
-extern class ValidateAttribute {
+extern class ValidateAttribute extends system.Attribute {
     /** Specifies a method in the same class to use for validation. */
     overload function new(condition:String, message:String, status:sandbox.LogLevel):Void;
     /** Specifies a static method in another class to use for validation. */
     overload function new(type:cs.system.Type, condition:String, message:String, status:sandbox.LogLevel):Void;
-    var TypeId(default,never):cs.system.Object;
     @:protected
     var _methodName(null,null):String;
     @:protected

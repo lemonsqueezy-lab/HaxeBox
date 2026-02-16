@@ -2,10 +2,9 @@
 
 /** A texture is an image used in rendering. Can be a static texture loaded from disk, or a dynamic texture rendered to by code. Can also be 2D, 3D (multiple slices), or a cube texture (6 slices). */
 @:native("Sandbox.Texture")
-extern class Texture {
+extern class Texture extends sandbox.Resource {
     /** Whether this texture is an error or invalid or not. */
     var IsError(default,never):Bool;
-    var IsValid(default,never):Bool;
     /** Flags providing hints about this texture */
     var Flags(default,default):sandbox.TextureFlags;
     /** Texture index. Bit raw dog and needs a higher level abstraction. */
@@ -41,19 +40,6 @@ extern class Texture {
     static var Black(default,never):sandbox.Texture;
     /** 1x1 fully transparent texture. */
     static var Transparent(default,never):sandbox.Texture;
-    /** ID of this resource, */
-    @:protected
-    var ResourceId(default,null):Int;
-    /** Path to this resource. */
-    @:protected
-    var ResourcePath(default,null):String;
-    /** File name of the resource without the extension. */
-    @:protected
-    var ResourceName(default,null):String;
-    /** True if this resource has been changed but the changes aren't written to disk */
-    var HasUnsavedChanges(default,never):Bool;
-    /** Embedded data for this resource */
-    var EmbeddedResource(default,default):Null<sandbox.resources.EmbeddedResource>;
     /** Clear this texture with a solid color */
     function Clear(color:Color):Void;
     /** Begins creation of a custom texture. Finish by calling . */
@@ -111,9 +97,9 @@ extern class Texture {
     /** Tells texture streaming this texture is being used. This is usually automatic, but useful for bindless pipelines. */
     function MarkUsed(requiredMipSize:Int):Void;
     /** Creates a VTEX file from this texture. */
-    function SaveToVtex(uncompressed:Bool):Array<Int>;
+    function SaveToVtex(formatOverride:Null<sandbox.ImageFormat>):Array<Int>;
     /** Asynchronously saves the current data to the VTEX platform and returns the resulting byte array. */
-    function SaveToVtexAsync():system.threading.tasks.Task1<Array<Int>>;
+    function SaveToVtexAsync(format:Null<sandbox.ImageFormat>):system.threading.tasks.Task1<Array<Int>>;
     /** Update this texture from the bitmap */
     overload function Update(source:sandbox.Bitmap):Void;
     overload function Update(color:Color32, rect:sandbox.Rect):Void;

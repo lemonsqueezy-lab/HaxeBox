@@ -3,6 +3,7 @@
 /** A collection of bones. This could be from a model, or an entity */
 @:native("Sandbox.BoneCollection")
 extern class BoneCollection {
+    @:protected function new():Void;
     /** Root bone of the model. */
     var Root(default,never):sandbox.bonecollection.Bone;
     /** List of all bones of our object. */

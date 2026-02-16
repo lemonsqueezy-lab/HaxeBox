@@ -3,6 +3,7 @@
 /** An object (or data) that can be accessed as an object */
 @:native("Sandbox.SerializedObject")
 extern class SerializedObject {
+    @:protected function new():Void;
     var ParentProperty(default,default):sandbox.SerializedProperty;
     var TypeIcon(default,never):String;
     var TypeName(default,never):String;

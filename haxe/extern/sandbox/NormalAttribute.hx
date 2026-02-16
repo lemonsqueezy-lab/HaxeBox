@@ -2,7 +2,6 @@
 
 /** When applied to a Vector property, provides normal selection tools. */
 @:native("Sandbox.NormalAttribute")
-final extern class NormalAttribute {
+final extern class NormalAttribute extends system.Attribute {
     function new():Void;
-    var TypeId(default,never):cs.system.Object;
 }

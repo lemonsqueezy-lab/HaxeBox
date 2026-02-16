@@ -2,7 +2,7 @@
 
 /** A model. */
 @:native("Sandbox.Model")
-final extern class Model {
+final extern class Model extends sandbox.Resource {
     /** Number of animations this model has. */
     var AnimationCount(default,never):Int;
     var AnimationNames(default,never):system.collections.generic.IReadOnlyList<String>;
@@ -23,7 +23,6 @@ final extern class Model {
     var PhysicsBounds(default,never):BBox;
     /** Render view bounds. */
     var RenderBounds(default,never):BBox;
-    var IsValid(default,never):Bool;
     /** Whether this model is an error model or invalid or not. */
     var IsError(default,never):Bool;
     /** Name of the model, usually being its file path. */
@@ -60,19 +59,6 @@ final extern class Model {
     static var Plane(default,never):sandbox.Model;
     /** An error model */
     static var Error(default,never):sandbox.Model;
-    /** ID of this resource, */
-    @:protected
-    var ResourceId(default,null):Int;
-    /** Path to this resource. */
-    @:protected
-    var ResourcePath(default,null):String;
-    /** File name of the resource without the extension. */
-    @:protected
-    var ResourceName(default,null):String;
-    /** True if this resource has been changed but the changes aren't written to disk */
-    var HasUnsavedChanges(default,never):Bool;
-    /** Embedded data for this resource */
-    var EmbeddedResource(default,default):Null<sandbox.resources.EmbeddedResource>;
     /** Creates a dictionary of bone names to game objects, where each game object is a bone object in the scene. */
     function CreateBoneObjects(root:sandbox.GameObject):system.collections.generic.Dictionary<sandbox.bonecollection.Bone,sandbox.GameObject>;
     @:protected function Finalize():Void;

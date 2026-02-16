@@ -3,6 +3,7 @@
 /** Allows creating a class that will exist for as long as a particle. The methods get called in the particle thread, which removes the need to run through the particle list again, but it has the danger and restrictions that come with threaded code. */
 @:native("Sandbox.Particle.BaseListener")
 extern class BaseListener {
+    @:protected function new():Void;
     /** The component that created this listener. May be null. */
     var Source(default,never):sandbox.Component;
     /** Called in a thread. OnUpdate won't be called again. */

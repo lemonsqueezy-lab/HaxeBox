@@ -2,7 +2,8 @@
 
 @:native("Sandbox.UI.TextBlock.HtmlSpan")
 extern class HtmlSpan {
-    function new(node:sandbox.html.INode, from:Int, to:Int):Void;
+    overload function new(node:sandbox.html.INode, from:Int, to:Int):Void;
+    @:protected overload function new(original:sandbox.ui.textblock.HtmlSpan):Void;
     @:protected
     var EqualityContract(null,never):cs.system.Type;
     var node(default,default):sandbox.html.INode;

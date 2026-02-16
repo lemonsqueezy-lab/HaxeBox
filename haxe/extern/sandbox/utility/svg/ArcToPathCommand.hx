@@ -2,11 +2,10 @@
 
 /** See . */
 @:native("Sandbox.Utility.Svg.ArcToPathCommand")
-extern class ArcToPathCommand {
+extern class ArcToPathCommand extends sandbox.utility.svg.PathCommand {
     /** See . */
-    function new(Rx:Single, Ry:Single, XAxisRotate:Single, LargeArc:sandbox.utility.svg.PathArcSize, Sweep:sandbox.utility.svg.PathDirection, X:Single, Y:Single):Void;
-    @:protected
-    var EqualityContract(null,never):cs.system.Type;
+    overload function new(Rx:Single, Ry:Single, XAxisRotate:Single, LargeArc:sandbox.utility.svg.PathArcSize, Sweep:sandbox.utility.svg.PathDirection, X:Single, Y:Single):Void;
+    @:protected overload function new(original:sandbox.utility.svg.ArcToPathCommand):Void;
     var Rx(default,default):Single;
     var Ry(default,default):Single;
     var XAxisRotate(default,default):Single;

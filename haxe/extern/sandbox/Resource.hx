@@ -3,6 +3,7 @@
 /** A resource loaded in the engine, such as a or . */
 @:native("Sandbox.Resource")
 extern class Resource {
+    @:protected function new():Void;
     /** ID of this resource, */
     @:protected
     var ResourceId(default,null):Int;

@@ -3,6 +3,7 @@
 /** Auto generated container class for majority of CSS properties available. */
 @:native("Sandbox.UI.BaseStyles")
 extern class BaseStyles {
+    @:protected function new():Void;
     /** Represents the overflow CSS property. */
     var Overflow(default,default):Null<sandbox.ui.OverflowMode>;
     /** Represents the content CSS property. */
