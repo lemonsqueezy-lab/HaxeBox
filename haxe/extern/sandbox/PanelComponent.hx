@@ -2,6 +2,7 @@
 
 @:native("Sandbox.PanelComponent")
 extern class PanelComponent {
+    @:protected function new():Void;
     /** The panel. Can be null if the panel doesn't exist yet. */
     var Panel(default,never):sandbox.ui.Panel;
     /** The scene this Component is in. This is a shortcut for `GameObject.Scene`. */

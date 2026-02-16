@@ -14,5 +14,4 @@ extern class MousePanelEvent {
     var This(default,default):sandbox.ui.Panel;
     var Target(default,default):sandbox.ui.Panel;
     var LocalPosition(default,default):Vector2;
-    var Button(default,default):String;
 }
