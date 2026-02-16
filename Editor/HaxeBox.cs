@@ -29,6 +29,9 @@ public static class HaxeBox {
             root = project.GetRootPath() ?? "";
             path = FindPath();
 
+            if (!Directory.Exists(Path.Combine(path, "haxe", "extern")))
+                GenerateExterns();
+
             Editor.Application.OnWidgetClicked = OnWidgetClicked;
         } catch (Exception e) {
             logger.Error("Failed to start HaxeBox: " + e.ToString());
@@ -101,8 +104,8 @@ public static class HaxeBox {
 
     [Menu("Editor", "HaxeBox/Generate Extern Types")]
     private static void GenerateExterns() {
-        Toaster.CompileStarted("Haxe", "Generating extern types...");
         ThreadPool.QueueUserWorkItem(_ => {
+            Toaster.CompileStarted("Haxe", "Generating extern types...");
             try {
                 ExternGen.GenerateFromRuntime(["Sandbox"]);
                 Toaster.CompileSucceeded("Haxe", "Extern types generated");

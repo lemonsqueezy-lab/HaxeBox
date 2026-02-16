@@ -1,6 +1,0 @@
-﻿package sandbox.audio.lowpassprocessor;
-
-@:native("Sandbox.Audio.LowPassProcessor.State")
-extern class State extends sandbox.audio.audioprocessor.ListenerState {
-    function new():Void;
-}
