@@ -26,57 +26,23 @@ public static class HaxeBox {
     public static void OnCreated(EditorMainWindow mainWindow) {
         try {
             project = Project.Current ?? throw new InvalidOperationException("Project.Current is null");
-            root = project.GetRootPath() ?? "";
+            root = project.GetRootPath() ?? root;
             path = FindPath();
 
-            if (!Directory.Exists(Path.Combine(path, "haxe", "extern")))
+            if (!Directory.Exists(Path.Combine(path, "haxe", "extern")) || Directory.GetFiles(path).Length == 0)
                 GenerateExterns();
 
-            Editor.Application.OnWidgetClicked = OnWidgetClicked;
+            Editor.Application.OnWidgetClicked += OnWidgetClicked;
         } catch (Exception e) {
             logger.Error("Failed to start HaxeBox: " + e.ToString());
         }
     }
   
-    static void OnWidgetClicked(Widget w, MouseEvent e) {
-        if (w == null) 
-            return;
-
-        try {
-            if (w is Button button) {
-                if (button.Text != "Next")
-                    return;
-                    
-                var parent = w.Parent;
-                if (parent == null) 
-                    return;
-                var parentType = parent.GetType();
-                if (parentType.FullName != "Editor.Wizards.StandaloneWizard") 
-                    return;
-                var curProp = parentType.GetProperty("Current", BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic);
-                var current = curProp?.GetValue(parent);
-                if (current?.GetType().FullName != "Editor.Wizards.StandaloneWizard+ReviewWizardPage")
-                    return;
-
-                var cb = button.Clicked;
-                e.Accepted = true;
-
-                builder ??= new Builder(port);
-                builder.BuildAsync((res) => {
-                    MainThread.Queue(cb);
-                    if (!res)
-                        logger.Warning("Failed to pre-build Release version. Debug version exported!");
-                });
-            }
-        } catch(Exception er) {
-            Log.Warning(er.Message);
-        }
-    }
-
     [Event("app.exit")]
-    private static void OnAppExit() {
+    private static void OnExit() {
         builder?.Dispose();
         builder = null;
+        Editor.Application.OnWidgetClicked -= OnWidgetClicked;
     }
 
     [Event("scene.startplay")]
@@ -148,6 +114,42 @@ public static class HaxeBox {
             if (!string.IsNullOrEmpty(full))
                 return Path.GetDirectoryName(full)!;
         }
-        throw new Exception("Failed to find HaxeBox path");
+        return path;
+    }
+
+    static void OnWidgetClicked(Widget w, MouseEvent e) {
+        if (w is not Button button) return;
+        if (button.Text != "Next") return;
+
+        var parent = w.Parent;
+        if (parent == null) return;
+
+        var parentType = parent.GetType();
+        var parentFullName = parentType.FullName ?? "";
+        if (parentFullName != "Editor.Wizards.StandaloneWizard" &&
+            parentFullName != "Editor.Wizards.PublishWizard")
+            return;
+
+        // workaround https://github.com/Facepunch/sbox-public/issues/10037
+        Editor.EditorEvent.Unregister(parent);
+
+        var curProp = parentType.GetProperty("Current", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var current = curProp?.GetValue(parent);
+        if (current == null) return;
+
+        var currentFullName = current.GetType().FullName ?? "";
+        if (currentFullName != "Editor.Wizards.StandaloneWizard+ReviewWizardPage" &&
+            currentFullName != "Editor.Wizards.PublishWizard+ReviewWizardPage")
+            return;
+
+        var cb = button.Clicked;
+        e.Accepted = true;
+
+        builder ??= new Builder(port);
+        builder.BuildAsync(res => {
+            MainThread.Queue(cb);
+            if (!res)
+                logger.Warning("Failed to pre-build Release version. Debug version exported!");
+        });
     }
 }

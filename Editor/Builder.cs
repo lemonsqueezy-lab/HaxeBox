@@ -43,7 +43,7 @@ sealed class Builder : IDisposable {
         };
         serverInfo = new ProcessStartInfo {
             FileName = "haxe",
-            Arguments = $"--wait -v {port}",
+            Arguments = $"--wait {port}",
             WorkingDirectory = HaxeBox.root,
             UseShellExecute = false,
             CreateNoWindow = true,
