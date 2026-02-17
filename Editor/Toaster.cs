@@ -63,9 +63,10 @@ public static class Toaster {
 
 			if (diagnostics != null) {
 				foreach (var d in diagnostics) {
-					if (d.FilePath != null)
-						HaxeBox.logger.Error($"{d.FilePath}:{d.Line}:{d.Column}: {d.Message}");
-					else
+					if (d.FilePath != null) {
+                        var path = d.FilePath.Replace('\\', '/');
+						HaxeBox.logger.Error($"{path}({d.Line},{d.Column}): error: {d.Message}");
+					} else
 						HaxeBox.logger.Error(d.Message);
 				}
 			}
@@ -197,7 +198,7 @@ public static class Toaster {
 
 		private bool _isErrored;
 
-		// Used for Shift+Click behavior (open all files)
+		// used for Shift+Click behavior (open all files)
 		private readonly List<(string file, int line, int col)> _jumpTargets = new();
 
 		public CompileNotice(string key) {

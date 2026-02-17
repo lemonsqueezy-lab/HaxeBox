@@ -5,17 +5,16 @@ using System.IO;
 using System.Text;
 using System.Diagnostics;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Collections.Generic;
 using Sandbox;
 
 sealed class Builder : IDisposable {
-    static string[] ignore = ["obj", "__haxe__", "properties"];
     const int BuildDebounceMs = 250;
     volatile bool disposed;
 
     int port;
-    bool building, pending, pendingRelease;
+    string haxeCommand;
+    bool building, pending, pendingRelease, pendingServerRestart;
     readonly object buildLock = new();
     readonly List<Action<bool>> pendingCallbacks = new();
     string? lastHxml;
@@ -28,10 +27,45 @@ sealed class Builder : IDisposable {
 
     public bool enabled;
 
-    public Builder(int port) {
-        this.port = port;
-        startInfo = new ProcessStartInfo {
-            FileName = "haxe",
+    public Builder(int port, string haxeCommand) {
+        this.port = port is > 0 and <= 65535 ? port : 6060;
+        this.haxeCommand = string.IsNullOrWhiteSpace(haxeCommand) ? "haxe" : haxeCommand.Trim();
+
+        startInfo = CreateBuildStartInfo();
+        serverInfo = CreateServerStartInfo();
+
+        codeWatcher = new Watcher(Path.Combine(HaxeBox.root, "code"), ["*.hx"], Queue);
+        StartServer();
+        HaxeBox.logger.Info("Builder created");
+    }
+
+    public void ApplySettings(int port, string haxeCommand) {
+        var normalizedPort = port is > 0 and <= 65535 ? port : 6060;
+        var normalizedCommand = string.IsNullOrWhiteSpace(haxeCommand) ? "haxe" : haxeCommand.Trim();
+        var restartServer = this.port != normalizedPort || !string.Equals(this.haxeCommand, normalizedCommand, StringComparison.Ordinal);
+
+        this.port = normalizedPort;
+        this.haxeCommand = normalizedCommand;
+        startInfo = CreateBuildStartInfo();
+        serverInfo = CreateServerStartInfo();
+
+        if (!restartServer || disposed)
+            return;
+
+        bool restartNow;
+        lock (buildLock) {
+            restartNow = !building;
+            if (!restartNow)
+                pendingServerRestart = true;
+        }
+
+        if (restartNow)
+            StartServer();
+    }
+
+    ProcessStartInfo CreateBuildStartInfo() {
+        return new ProcessStartInfo {
+            FileName = haxeCommand,
             Arguments = $"--connect {port} build.hxml",
             WorkingDirectory = HaxeBox.root,
             UseShellExecute = false,
@@ -41,8 +75,11 @@ sealed class Builder : IDisposable {
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
-        serverInfo = new ProcessStartInfo {
-            FileName = "haxe",
+    }
+
+    ProcessStartInfo CreateServerStartInfo() {
+        return new ProcessStartInfo {
+            FileName = haxeCommand,
             Arguments = $"--wait {port}",
             WorkingDirectory = HaxeBox.root,
             UseShellExecute = false,
@@ -52,9 +89,6 @@ sealed class Builder : IDisposable {
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
-        codeWatcher = new Watcher(Path.Combine(HaxeBox.root, "code"), ["*.hx"], Queue);
-        StartServer();
-        HaxeBox.logger.Info("Builder created");
     }
 
     public void Pause() {
@@ -63,7 +97,7 @@ sealed class Builder : IDisposable {
         enabled = false;
 
         codeWatcher.Stop();
-        HaxeBox.logger.Info("Builder paused");
+        HaxeBox.logger.Info("Hotload paused");
     }
 
     public void Resume() {
@@ -72,7 +106,7 @@ sealed class Builder : IDisposable {
         enabled = true;
 
         codeWatcher.Start();
-        HaxeBox.logger.Info("Builder resumed");
+        HaxeBox.logger.Info("Hotload resumed");
         BuildAsync();
     }
 
@@ -120,8 +154,14 @@ sealed class Builder : IDisposable {
             bool runPending = false;
             bool runPendingRelease = false;
             List<Action<bool>>? runPendingCallbacks = null;
+            bool restartServer = false;
             lock (buildLock) {
                 building = false;
+                if (pendingServerRestart) {
+                    pendingServerRestart = false;
+                    restartServer = true;
+                }
+
                 if (pending) {
                     runPending = true;
                     runPendingRelease = pendingRelease;
@@ -133,6 +173,9 @@ sealed class Builder : IDisposable {
                     pendingRelease = false;
                 }
             }
+
+            if (restartServer && !disposed)
+                StartServer();
 
             if (runPending) 
                 BuildAsync(runPendingRelease, ok2 => {
@@ -160,6 +203,8 @@ sealed class Builder : IDisposable {
               .AppendLine($"-cp {HaxeBox.path}/haxe/extern")
               .AppendLine("--macro include('', true, [], ['code'], true)")
               .AppendLine("--macro HaxeBoxMacro.init()");
+            foreach (var library in HaxeBox.GetLibraries())
+                sb.AppendLine("--library " + library);
 
             sb.AppendLine("# config")
               .AppendLine("-dce no");
@@ -206,8 +251,6 @@ sealed class Builder : IDisposable {
                 return false;
             }
 
-            Toaster.RemoveCurrent();
-
         } catch (Exception ex) {
             Toaster.CompileFailed("Haxe", [ex.Message], "Build failed");
             return false;
@@ -215,11 +258,17 @@ sealed class Builder : IDisposable {
             if (!disposed && resumeWatcher && enabled)
                 codeWatcher.Start();
         }
+        
+        Toaster.RemoveCurrent();
+        HaxeBox.logger.Info("...completed");
 
         return true;
     }
 
     void StartServer() {
+        if (disposed)
+            return;
+
         StopServer();
 
         server = Process.Start(serverInfo);
@@ -240,8 +289,14 @@ sealed class Builder : IDisposable {
     void StopServer() {
         if (server == null)
             return;
-            
-        server.Kill();
+
+        try {
+            if (!server.HasExited)
+                server.Kill();
+        } catch {
+            // ignore: process may already be gone
+        }
+
         server = null;
         HaxeBox.logger.Info("Compilation server stopped");
     }

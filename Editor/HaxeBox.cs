@@ -2,35 +2,184 @@
 
 using System;
 using System.IO;
-using System.Text;
+using System.Linq;
 using System.Threading;
 using System.Reflection;
-using System.Diagnostics;
 using System.Collections.Generic;
+using System.Text.Json;
 using Editor;
-using Editor.Wizards;
 using Sandbox;
 using Sandbox.Diagnostics;
 
 public static class HaxeBox {
-    public static int port = 6060;
+    const string DefaultLibraryPath = "libraries/lemonsqueezy.haxebox";
+    const string SettingsFileName = "haxebox.json";
+    const int ApplySettingsDebounceMs = 300;
+
+    sealed class SettingsData {
+        public int BuildServerPort { get; set; } = 6060;
+        public string HaxePath { get; set; } = "";
+        public bool HotloadEnabled { get; set; }
+        public List<string> Libraries { get; set; } = [];
+    }
+
+    sealed class PreferencesPage : Widget {
+        public PreferencesPage(Widget parent) : base(parent) {
+            Layout = Layout.Column();
+            Layout.Margin = 32;
+            Layout.Spacing = 8;
+
+            if (!EnsureInitialized()) {
+                Layout.Add(new Label("Project is not loaded"));
+                Layout.AddStretchCell();
+                return;
+            }
+
+            Layout.Add(new Label.Subtitle("HaxeBox"));
+
+            var draftPort = settings.BuildServerPort;
+            var draftHaxePath = settings.HaxePath;
+            var draftLibraries = new List<string>(settings.Libraries);
+            var draftHotload = settings.HotloadEnabled;
+            Button.Primary? save = null;
+            LineEdit? portEdit = null;
+            Label? portError = null;
+
+            var topRow = Layout.AddRow();
+            topRow.Spacing = 8;
+
+            topRow.Add(new Label("Build Server Port"));
+            portEdit = topRow.Add(new LineEdit(settings.BuildServerPort.ToString()), 1);
+            portEdit.PlaceholderText = "6060";
+            portEdit.TextEdited += text => {
+                if (!int.TryParse(text, out var parsed) || parsed < 1 || parsed > 65535) 
+                {
+                    UpdateSaveEnabled();
+                    return;
+                }
+                draftPort = parsed;
+                UpdateSaveEnabled();
+            };
+            portError = Layout.Add(new Label("Port must be a number from 1 to 65535"));
+            portError.Visible = false;
+
+            var hotload = topRow.Add(new Checkbox("Hotload"));
+            hotload.State = settings.HotloadEnabled ? CheckState.On : CheckState.Off;
+            hotload.StateChanged = state => {
+                draftHotload = state == CheckState.On;
+                UpdateSaveEnabled();
+            };
+
+            Layout.Add(new Label("Haxe Path (optional)"));
+            var pathEdit = Layout.Add(new LineEdit(settings.HaxePath));
+            pathEdit.PlaceholderText = "haxe";
+            pathEdit.TextEdited += text => {
+                draftHaxePath = text.Trim();
+                UpdateSaveEnabled();
+            };
+
+            Layout.Add(new Label("Libraries (one per line)"));
+            var librariesEdit = Layout.Add(new TextEdit(this));
+            librariesEdit.MinimumHeight = 140;
+            librariesEdit.PlainText = string.Join("\n", settings.Libraries);
+            librariesEdit.TextChanged = _ => {
+                draftLibraries = ParseLibraries(librariesEdit.PlainText);
+                UpdateSaveEnabled();
+            };
+
+            Layout.AddSeparator();
+
+            var buttonsRow = Layout.AddRow();
+            buttonsRow.Spacing = 8;
+
+            var gen = buttonsRow.Add(new Button("Generate Externs", "construction"));
+            gen.Clicked = GenerateExterns;
+
+            var clear = buttonsRow.Add(new Button("Clear Output", "delete"));
+            clear.Clicked = ClearOutput;
+
+            save = buttonsRow.Add(new Button.Primary("Save", "save"));
+            save.Clicked = () => {
+                if (portEdit == null || !int.TryParse(portEdit.Text, out var parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+                    logger.Warning("Invalid Haxe build server port. Allowed range: 1-65535.");
+                    return;
+                }
+
+                draftPort = parsedPort;
+                var prevHotload = settings.HotloadEnabled;
+
+                settings.BuildServerPort = draftPort;
+                settings.HaxePath = draftHaxePath;
+                settings.Libraries = draftLibraries;
+                settings.HotloadEnabled = draftHotload;
+
+                SaveSettings();
+                QueueApplyBuilderSettings();
+
+                if (settings.HotloadEnabled != prevHotload) {
+                    if (settings.HotloadEnabled)
+                        EnsureBuilder().Resume();
+                    else
+                        builder?.Pause();
+                }
+
+                UpdateSaveEnabled();
+            };
+            save.Enabled = false;
+
+            UpdateSaveEnabled();
+            Layout.AddStretchCell();
+
+            void UpdateSaveEnabled() {
+                var hasPortError = portEdit == null || !int.TryParse(portEdit.Text, out var parsedPort) || parsedPort < 1 || parsedPort > 65535;
+                var hasChanges =
+                    draftPort != settings.BuildServerPort ||
+                    !string.Equals(draftHaxePath, settings.HaxePath, StringComparison.Ordinal) ||
+                    draftHotload != settings.HotloadEnabled ||
+                    !settings.Libraries.SequenceEqual(draftLibraries, StringComparer.OrdinalIgnoreCase);
+
+                if (save == null)
+                    return;
+
+                if (portError != null)
+                    portError.Visible = hasPortError;
+
+                save.Enabled = hasChanges && !hasPortError;
+            }
+        }
+    }
+
+    static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    static SettingsData settings = new();
+    static bool initialized;
+    static readonly object applySettingsLock = new();
+    static Timer? applySettingsTimer;
+
     public static Logger logger = new Logger("HaxeBox");
     private static Builder? builder;
     
-    public static string path = "libraries/lemonsqueezy.haxebox";
+    public static string path = DefaultLibraryPath;
     public static string root = "";
     public static Project project = null!;
     public static (bool whitelist, bool release, HashSet<string> symbols) config = (true, true, []);
 
+    [Event("editor.preferences")]
+    static void OnEditorPreferences(NavigationView container) {
+        container.AddSectionHeader("HaxeBox");
+        container.AddPage("HaxeBox", "construction", new PreferencesPage(container));
+    }
+
     [Event("editor.created")]
     public static void OnCreated(EditorMainWindow mainWindow) {
         try {
-            project = Project.Current ?? throw new InvalidOperationException("Project.Current is null");
-            root = project.GetRootPath() ?? root;
-            path = FindPath();
+            if (!EnsureInitialized())
+                throw new InvalidOperationException("Project.Current is null");
 
             if (!Directory.Exists(Path.Combine(path, "haxe", "extern")) || Directory.GetFiles(path).Length == 0)
                 GenerateExterns();
+
+            if (settings.HotloadEnabled)
+                EnsureBuilder().Resume();
 
             Editor.Application.OnWidgetClicked += OnWidgetClicked;
         } catch (Exception e) {
@@ -40,20 +189,31 @@ public static class HaxeBox {
   
     [Event("app.exit")]
     private static void OnExit() {
+        lock (applySettingsLock) {
+            applySettingsTimer?.Dispose();
+            applySettingsTimer = null;
+        }
+
         builder?.Dispose();
         builder = null;
         Editor.Application.OnWidgetClicked -= OnWidgetClicked;
     }
 
     [Event("scene.startplay")]
-    private static void AutoBuild() {
-        builder ??= new Builder(port);
-        if (!builder.enabled)
-            builder.BuildAsync();
+    private static void OnPlay() {
+        if (!EnsureInitialized())
+            return;
+
+        var activeBuilder = EnsureBuilder();
+        if (!activeBuilder.enabled)
+            activeBuilder.BuildAsync();
     }
     
     [Event("compile.started")]
     private static void CompileStarted(CompileGroup group) {
+        if (!EnsureInitialized())
+            return;
+
         var cfg = project.Config.GetMetaOrDefault("Compiler", new Compiler.Configuration());
         var whitelist = !project.Config.IsStandaloneOnly;
         var release = cfg.ReleaseMode == Compiler.ReleaseMode.Release;
@@ -63,12 +223,10 @@ public static class HaxeBox {
             config = (whitelist, release, symbols);
             logger.Info("Build config changed");
 
-            builder ??= new Builder(port);
-            builder.Build();
+            EnsureBuilder().Build();
         }
     }
 
-    [Menu("Editor", "HaxeBox/Generate Extern Types")]
     private static void GenerateExterns() {
         ThreadPool.QueueUserWorkItem(_ => {
             Toaster.CompileStarted("Haxe", "Generating extern types...");
@@ -81,16 +239,22 @@ public static class HaxeBox {
         });
     }
 
-    [Menu("Editor", "HaxeBox/Toggle Auto Build")]
-    private static void ToggleAutoBuild() {
-        builder ??= new Builder(port);
-        if (builder.enabled)
-            builder.Pause();
+    private static void SetHotload(bool enabled) {
+        if (settings.HotloadEnabled == enabled) {
+            if (enabled)
+                EnsureBuilder().Resume();
+            return;
+        }
+
+        settings.HotloadEnabled = enabled;
+        SaveSettings();
+
+        if (enabled)
+            EnsureBuilder().Resume();
         else
-            builder.Resume();
+            builder?.Pause();
     }
 
-    [Menu("Editor", "HaxeBox/Clear Output")]
     private static void ClearOutput() {
         try {
             var outPath = Path.Combine(root, "code", "__haxe__");
@@ -100,6 +264,114 @@ public static class HaxeBox {
         } catch (Exception e) {
             logger.Warning("Failed to clear output: " + e.ToString());
         }
+    }
+
+    private static bool EnsureInitialized() {
+        if (initialized)
+            return true;
+
+        if (Project.Current == null)
+            return false;
+
+        project = Project.Current;
+        root = project.GetRootPath() ?? root;
+        path = FindPath();
+        LoadSettings();
+
+        initialized = true;
+        return true;
+    }
+
+    private static Builder EnsureBuilder() {
+        builder ??= new Builder(settings.BuildServerPort, GetHaxeCommand());
+        builder.ApplySettings(settings.BuildServerPort, GetHaxeCommand());
+        return builder;
+    }
+
+    private static void QueueApplyBuilderSettings() {
+        lock (applySettingsLock) {
+            applySettingsTimer ??= new Timer(_ => {
+                try {
+                    builder?.ApplySettings(settings.BuildServerPort, GetHaxeCommand());
+                } catch (Exception e) {
+                    logger.Warning("Failed to apply builder settings: " + e.Message);
+                }
+            }, null, Timeout.Infinite, Timeout.Infinite);
+
+            applySettingsTimer.Change(ApplySettingsDebounceMs, Timeout.Infinite);
+        }
+    }
+
+    private static string GetSettingsPath() {
+        if (string.IsNullOrEmpty(root))
+            return "";
+
+        return Path.Combine(root, SettingsFileName);
+    }
+
+    private static string GetHaxeCommand() {
+        if (string.IsNullOrWhiteSpace(settings.HaxePath))
+            return "haxe";
+
+        return settings.HaxePath.Trim();
+    }
+
+    private static List<string> ParseLibraries(string? value) {
+        if (string.IsNullOrWhiteSpace(value))
+            return [];
+
+        return value
+            .Split(['\r', '\n', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static void NormalizeSettings() {
+        if (settings.BuildServerPort < 1 || settings.BuildServerPort > 65535)
+            settings.BuildServerPort = 6060;
+
+        settings.HaxePath = settings.HaxePath?.Trim() ?? "";
+        settings.Libraries ??= [];
+        settings.Libraries = ParseLibraries(string.Join("\n", settings.Libraries));
+    }
+
+    private static void LoadSettings() {
+        var settingsPath = GetSettingsPath();
+        if (string.IsNullOrEmpty(settingsPath))
+            return;
+
+        try {
+            if (File.Exists(settingsPath)) {
+                var json = File.ReadAllText(settingsPath);
+                var loaded = JsonSerializer.Deserialize<SettingsData>(json);
+                if (loaded != null)
+                    settings = loaded;
+            }
+        } catch (Exception e) {
+            logger.Warning("Failed to load settings: " + e.Message);
+        }
+
+        NormalizeSettings();
+    }
+
+    private static void SaveSettings() {
+        var settingsPath = GetSettingsPath();
+        if (string.IsNullOrEmpty(settingsPath))
+            return;
+
+        try {
+            NormalizeSettings();
+            var json = JsonSerializer.Serialize(settings, JsonOptions);
+            File.WriteAllText(settingsPath, json);
+            logger.Info("Settings updated");
+        } catch (Exception e) {
+            logger.Warning("Failed to save settings: " + e.Message);
+        }
+    }
+
+    public static IReadOnlyList<string> GetLibraries() {
+        return (settings.Libraries ?? []).ToArray();
     }
 
     static string FindPath() {
@@ -145,8 +417,7 @@ public static class HaxeBox {
         var cb = button.Clicked;
         e.Accepted = true;
 
-        builder ??= new Builder(port);
-        builder.BuildAsync(res => {
+        EnsureBuilder().BuildAsync(res => {
             MainThread.Queue(cb);
             if (!res)
                 logger.Warning("Failed to pre-build Release version. Debug version exported!");
