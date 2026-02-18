@@ -10,6 +10,9 @@ sealed class Watcher : IDisposable {
     public Watcher(string path, string[] filters, Action<string> onChange) {
         this.onChange = onChange;
 
+        if (!Directory.Exists(path))
+            Directory.CreateDirectory(path);
+
         watcher = new FileSystemWatcher(path) {
             IncludeSubdirectories = true,
             InternalBufferSize = 64 * 1024,

@@ -251,23 +251,39 @@ class HaxeBoxMacro {
 
 		var project = Context.definedValue("PROJECT_PATH");
 		var haxebox = Context.definedValue("HAXEBOX_PATH");
+		var srcPath = Context.definedValue("SOURCES_PATH");
+		var outPath = Compiler.getOutput();
+		var exclude = Context.definedValue("SOURCES_EXCL")?.split(";") ?? [];
+		exclude.push(Path.withoutDirectory(outPath));
 
 		if (project == null || haxebox == null)
 			Context.fatalError("HaxeBox and project paths are not defined", Context.currentPos());
 
-		var src = Path.join([project, "code"]);
+		var src = resolvePath(project, srcPath, "code");
 		if (!FileSystem.exists(src))
 			return;
 
 		for (f in FileSystem.readDirectory(src))
-			Compiler.addGlobalMetadata(Path.withoutExtension(f), "@:build(HaxeBoxMacro.build())");
+			if (!exclude.contains(f) && (Path.extension(f) == "hx" || FileSystem.isDirectory(Path.join([src, f]))))
+				Compiler.addGlobalMetadata(Path.withoutExtension(f), "@:build(HaxeBoxMacro.build())");
 
 		#if WHITELIST
 		Context.onAfterGenerate(() -> try {
-			patchWhitelist(Path.join([haxebox, "haxe", "src"]), Path.join([project, "code", "__haxe__", "src"]));
+			var out = resolvePath(project, outPath, "code/__haxe__");
+			patchWhitelist(Path.join([haxebox, "haxe", "src"]), Path.join([out, "src"]));
 		} catch (e)
 			Context.warning("Failed to patch whitelist: " + e.message, Context.currentPos()));
 		#end
+	}
+
+	static function resolvePath(project:String, path:Null<String>, fallback:String):String {
+		var v = (path == null ? fallback : path.trim());
+		if (v.length == 0)
+			v = fallback;
+		v = StringTools.replace(v, "\\", "/");
+		if (Path.isAbsolute(v))
+			return v;
+		return Path.join([project, v]);
 	}
 
 	#if WHITELIST
@@ -379,10 +395,13 @@ class HaxeBoxMacro {
 			buildTracks(tracks, hashBuilder, fields);
 			var m = buildMarkups(markups, builderRef, fields, classTypes);
 			if (builder != null)
-				builder.expr = macro {
-					${builder.expr};
-					$m;
-				}
+				if (builder.expr == null)
+					builder.expr = m;
+				else
+					builder.expr = macro {
+						${builder.expr};
+						$m;
+					}
 		}
 
 		return fields;
