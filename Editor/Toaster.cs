@@ -15,9 +15,6 @@ public static class Toaster {
 		MainThread.Queue(() => {
 			current = GetOrCreate(Key(name));
 			current.SetCompiling(name, subtitle);
-
-			if (subtitle != null)
-				HaxeBox.logger.Info(subtitle);
 		});
 	}
 
@@ -36,9 +33,6 @@ public static class Toaster {
 
 			if (EditorPreferences.NotificationSounds)
 				EditorUtility.PlayRawSound("sounds/editor/success.wav");
-
-			if (subtitle != null)
-				HaxeBox.logger.Info(subtitle);
 		});
 	}
 
@@ -57,10 +51,7 @@ public static class Toaster {
 
 			if (EditorPreferences.NotificationSounds)
 				EditorUtility.PlayRawSound("sounds/editor/fail.wav");
-
-			if (subtitle != null)
-				HaxeBox.logger.Error(subtitle);
-
+                
 			if (diagnostics != null) {
 				foreach (var d in diagnostics) {
 					if (d.FilePath != null) {

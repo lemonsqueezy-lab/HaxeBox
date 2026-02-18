@@ -244,9 +244,18 @@ public static class HaxeBox {
 
     [Event("app.exit")]
     private static void OnExit() {
-        builder?.Dispose();
+        var activeBuilder = builder;
         builder = null;
         Editor.Application.OnWidgetClicked -= OnWidgetClicked;
+        if (activeBuilder != null) {
+            ThreadPool.QueueUserWorkItem(_ => {
+                try {
+                    activeBuilder.Dispose();
+                } catch (Exception e) {
+                    logger.Warning("Failed to dispose builder on exit: " + e.Message);
+                }
+            });
+        }
     }
 
     [Event("scene.startplay")]

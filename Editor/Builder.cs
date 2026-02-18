@@ -20,6 +20,7 @@ sealed class Builder : IDisposable {
     string[] exclude;
     bool building, pending, pendingRelease;
     readonly object buildLock = new();
+    readonly object processLock = new();
     readonly List<Action<bool>> pendingCallbacks = new();
 
     ProcessStartInfo startInfo;
@@ -27,6 +28,7 @@ sealed class Builder : IDisposable {
     Timer? timer;
     Watcher codeWatcher;
     Process? server;
+    Process? buildProcess;
 
     public bool enabled;
 
@@ -148,6 +150,7 @@ sealed class Builder : IDisposable {
         timer?.Dispose();
         timer = null;
         codeWatcher.Dispose();
+        StopBuildProcess();
         StopServer();
 
         HaxeBox.logger.Info("Builder stopped");
@@ -213,6 +216,7 @@ sealed class Builder : IDisposable {
         Toaster.CompileStarted("Haxe", "Building...");
 
         var resumeWatcher = enabled;
+        Process? process = null;
         if (resumeWatcher)
             codeWatcher.Stop();
 
@@ -253,11 +257,14 @@ sealed class Builder : IDisposable {
 
             File.WriteAllText(Path.Combine(HaxeBox.root, "build.hxml"), hxml.ToString());
 
-            var process = Process.Start(startInfo);
+            process = Process.Start(startInfo);
             if (process == null) {
                 HaxeBox.logger.Error("Haxe build start failed");
                 return false;
             }
+
+            lock (processLock)
+                buildProcess = process;
 
             List<string> diagnostics = [];
             process.OutputDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) diagnostics.Add(e.Data); };
@@ -276,12 +283,17 @@ sealed class Builder : IDisposable {
             Toaster.CompileFailed("Haxe", [ex.Message], "Build failed");
             return false;
         } finally {
+            lock (processLock) {
+                if (ReferenceEquals(buildProcess, process))
+                    buildProcess = null;
+            }
+            process?.Dispose();
+
             if (!disposed && resumeWatcher && enabled)
                 codeWatcher.Start();
         }
         
         Toaster.RemoveCurrent();
-        HaxeBox.logger.Info("...completed");
 
         return true;
     }
@@ -310,34 +322,72 @@ sealed class Builder : IDisposable {
 
         StopServer();
 
-        server = Process.Start(serverInfo);
-        if (server == null) {
+        var p = Process.Start(serverInfo);
+        if (p == null) {
             HaxeBox.logger.Error("Compilation server start failed");
             return;
         }
 
-        server.OutputDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) HaxeBox.logger.Info(e.Data); };
-        server.ErrorDataReceived  += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) HaxeBox.logger.Error(e.Data); };
+        if (disposed) {
+            try {
+                if (!p.HasExited)
+                    p.Kill();
+            } catch {
+                // ignore
+            }
+            p.Dispose();
+            return;
+        }
 
-        server.BeginOutputReadLine();
-        server.BeginErrorReadLine();
+        lock (processLock)
+            server = p;
+
+        p.OutputDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) HaxeBox.logger.Info(e.Data); };
+        p.ErrorDataReceived  += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) HaxeBox.logger.Error(e.Data); };
+
+        p.BeginOutputReadLine();
+        p.BeginErrorReadLine();
 
         HaxeBox.logger.Info("Compilation server started");
     }
 
     void StopServer() {
-        if (server == null)
+        Process? p;
+        lock (processLock) {
+            p = server;
+            server = null;
+        }
+        if (p == null)
             return;
 
         try {
-            if (!server.HasExited)
-                server.Kill();
+            if (!p.HasExited)
+                p.Kill();
         } catch {
             // ignore: process may already be gone
         }
 
-        server = null;
+        p.Dispose();
         HaxeBox.logger.Info("Compilation server stopped");
+    }
+
+    void StopBuildProcess() {
+        Process? p;
+        lock (processLock) {
+            p = buildProcess;
+            buildProcess = null;
+        }
+        if (p == null)
+            return;
+
+        try {
+            if (!p.HasExited)
+                p.Kill();
+        } catch {
+            // ignore: process may already be gone
+        }
+
+        p.Dispose();
     }
 
     void Queue(string path) {

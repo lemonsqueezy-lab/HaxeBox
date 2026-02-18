@@ -5,21 +5,43 @@ import haxe.macro.Type.ClassType;
 using StringTools;
 
 #if macro
+import haxe.crypto.Md5;
+import haxe.io.Path;
+import haxe.macro.Compiler;
+import haxe.macro.Context;
+import haxe.macro.Expr;
 import sys.FileSystem;
 import sys.io.File;
-import haxe.io.Path;
-import haxe.macro.Expr;
-import haxe.macro.Context;
-import haxe.macro.Compiler;
-import haxe.macro.MacroStringTools;
 
 using haxe.macro.ExprTools;
 using haxe.macro.TypeTools;
 #end
 
+enum PanelType {
+	None;
+	Panel;
+	PanelComponent;
+}
+
+#if macro
+private typedef SeqState = {
+	var value:Int;
+}
+#end
+
 class HaxeBoxMacro {
 	#if macro
-	static final seq = macro __s++;
+	static final TAGS:Map<String, String> = [
+		"a" => "sandbox.ui.Label",
+		"button" => "sandbox.ui.Button",
+		"form" => "sandbox.ui.Form",
+		"img" => "sandbox.ui.Image",
+		"input" => "sandbox.ui.TextEntry",
+		"label" => "sandbox.ui.Label",
+		"option" => "sandbox.ui.Option",
+		"select" => "sandbox.ui.DropDown",
+		"textarea" => "sandbox.ui.TextEntry",
+	];
 
 	static var ATTR:Map<String, String> = [
 		"ActionGraphExposeWhenCached" => "Sandbox.ActionGraphExposeWhenCachedAttribute",
@@ -184,70 +206,18 @@ class HaxeBoxMacro {
 		"VertexLayout.TexCoord" => "Sandbox.VertexLayout.TexCoord",
 		"WideMode" => "Sandbox.WideModeAttribute",
 	];
-	static var TAGS = [
-		"div" => "sandbox.ui.Panel",
-		"span" => "sandbox.ui.Panel",
-		"p" => "sandbox.ui.Panel",
-		"h1" => "sandbox.ui.Panel",
-		"h2" => "sandbox.ui.Panel",
-		"h3" => "sandbox.ui.Panel",
-		"h4" => "sandbox.ui.Panel",
-		"h5" => "sandbox.ui.Panel",
-		"h6" => "sandbox.ui.Panel",
-		"ul" => "sandbox.ui.Panel",
-		"ol" => "sandbox.ui.Panel",
-		"li" => "sandbox.ui.Panel",
-		"a" => "sandbox.ui.Label",
-		"section" => "sandbox.ui.Panel",
-		"article" => "sandbox.ui.Panel",
-		"aside" => "sandbox.ui.Panel",
-		"header" => "sandbox.ui.Panel",
-		"footer" => "sandbox.ui.Panel",
-		"nav" => "sandbox.ui.Panel",
-		"main" => "sandbox.ui.Panel",
-		"table" => "sandbox.ui.Panel",
-		"thead" => "sandbox.ui.Panel",
-		"tbody" => "sandbox.ui.Panel",
-		"tfoot" => "sandbox.ui.Panel",
-		"tr" => "sandbox.ui.Panel",
-		"td" => "sandbox.ui.Panel",
-		"th" => "sandbox.ui.Panel",
-		"caption" => "sandbox.ui.Panel",
-		"colgroup" => "sandbox.ui.Panel",
-		"col" => "sandbox.ui.Panel",
-		"form" => "sandbox.ui.Form",
-		"label" => "sandbox.ui.Label",
-		"input" => "sandbox.ui.TextEntry",
-		"textarea" => "sandbox.ui.TextEntry",
-		"select" => "sandbox.ui.DropDown",
-		"option" => "sandbox.ui.Option",
-		"button" => "sandbox.ui.Button",
-		"img" => "sandbox.ui.Image",
-		"svg" => "sandbox.ui.SvgPanel",
-		"video" => "sandbox.ui.VideoPanel",
-		"canvas" => "sandbox.ui.Panel",
-		"pre" => "sandbox.ui.Panel",
-		"code" => "sandbox.ui.Panel",
-		"blockquote" => "sandbox.ui.Panel",
-		"q" => "sandbox.ui.Panel",
-		"small" => "sandbox.ui.Panel",
-		"strong" => "sandbox.ui.Panel",
-		"em" => "sandbox.ui.Panel",
-		"b" => "sandbox.ui.Panel",
-		"i" => "sandbox.ui.Panel",
-		"u" => "sandbox.ui.Panel",
-		"s" => "sandbox.ui.Panel",
-		"mark" => "sandbox.ui.Panel",
-		"sup" => "sandbox.ui.Panel",
-		"sub" => "sandbox.ui.Panel",
-		"hr" => "sandbox.ui.Panel",
-		"br" => "sandbox.ui.Panel",
-	];
+
+
+	static inline function nextSeqInt(seq:SeqState):Int
+		return seq.value++;
+
+	static inline function nextSeqExpr(seq:SeqState):Expr
+		return macro $v{seq.value++};
 
 	public static function init() {
 		Compiler.registerCustomMetadata({metadata: "ui.track", doc: "Track field to update UI"});
 		Compiler.registerCustomMetadata({metadata: "ui.markup", doc: "Build UI from markup expression"});
-		Compiler.registerCustomMetadata({metadata: "ui.stylesheet", doc: "Specify location for the stylesheet"});
+		Compiler.registerCustomMetadata({metadata: "ui.stylesheet", doc: "Specify stylesheet path"});
 
 		var project = Context.definedValue("PROJECT_PATH");
 		var haxebox = Context.definedValue("HAXEBOX_PATH");
@@ -263,16 +233,21 @@ class HaxeBoxMacro {
 		if (!FileSystem.exists(src))
 			return;
 
-		for (f in FileSystem.readDirectory(src))
-			if (!exclude.contains(f) && (Path.extension(f) == "hx" || FileSystem.isDirectory(Path.join([src, f]))))
+		for (f in FileSystem.readDirectory(src)) {
+			var full = Path.join([src, f]);
+			if (!exclude.contains(f) && (Path.extension(f) == "hx" || FileSystem.isDirectory(full)))
 				Compiler.addGlobalMetadata(Path.withoutExtension(f), "@:build(HaxeBoxMacro.build())");
+		}
 
 		#if WHITELIST
-		Context.onAfterGenerate(() -> try {
-			var out = resolvePath(project, outPath, "code/__haxe__");
-			patchWhitelist(Path.join([haxebox, "haxe", "src"]), Path.join([out, "src"]));
-		} catch (e)
-			Context.warning("Failed to patch whitelist: " + e.message, Context.currentPos()));
+		Context.onAfterGenerate(() -> {
+			try {
+				var out = resolvePath(project, outPath, "code/__haxe__");
+				patchWhitelist(Path.join([haxebox, "haxe", "src"]), Path.join([out, "src"]));
+			} catch (e) {
+				Context.warning("Failed to patch whitelist: " + e.message, Context.currentPos());
+			}
+		});
 		#end
 	}
 
@@ -280,10 +255,8 @@ class HaxeBoxMacro {
 		var v = (path == null ? fallback : path.trim());
 		if (v.length == 0)
 			v = fallback;
-		v = StringTools.replace(v, "\\", "/");
-		if (Path.isAbsolute(v))
-			return v;
-		return Path.join([project, v]);
+		v = v.replace("\\", "/");
+		return Path.isAbsolute(v) ? v : Path.join([project, v]);
 	}
 
 	#if WHITELIST
@@ -291,22 +264,26 @@ class HaxeBoxMacro {
 		if (!FileSystem.exists(src) || !FileSystem.exists(tgt))
 			return;
 
-		for (path in FileSystem.readDirectory(src)) {
-			var srcPath = Path.join([src, path]);
-			var tgtPath = Path.join([tgt, path]);
-			if (FileSystem.exists(tgtPath))
-				if (FileSystem.isDirectory(srcPath))
-					patchWhitelist(srcPath, tgtPath);
-				else
-					File.copy(srcPath, tgtPath);
+		for (name in FileSystem.readDirectory(src)) {
+			var srcPath = Path.join([src, name]);
+			var tgtPath = Path.join([tgt, name]);
+			if (!FileSystem.exists(tgtPath))
+				continue;
+			if (FileSystem.isDirectory(srcPath)) {
+				patchWhitelist(srcPath, tgtPath);
+				continue;
+			}
+
+			var rel = Path.normalize(tgtPath).replace("\\", "/");
+			if (rel.endsWith("/cs/internal/FieldLookup.cs"))
+				continue;
+			File.copy(srcPath, tgtPath);
 		}
 	}
 	#end
 
 	public static function build():Array<Field> {
-		var classTypes:Map<String, ComplexType> = [];
 		var fields = Context.getBuildFields() ?? [];
-
 		var cls = Context.getLocalClass()?.get();
 		if (cls == null)
 			return fields;
@@ -317,15 +294,16 @@ class HaxeBoxMacro {
 		if (cls.name != shortName)
 			clsModule += "." + cls.name;
 
-		var isPanel = isDerivedFromPanel(cls);
-		var tracks = [];
-		var hashBuilder = null;
-		var markups = [];
-		var markupIds = [];
-		var builder = null;
-		var builderRef = null;
-		var stylesheets = [];
-		var builderCb = null;
+		var panelType = getPanelType(cls);
+		var tracks:Array<String> = [];
+		var markups:Array<Field> = [];
+		var markupIds:Array<Int> = [];
+		var builder:Function = null;
+		var hashBuilder:Function = null;
+		var checksumBuilder:Function = null;
+		var constructor:Function = null;
+		var builderRef:Expr = null;
+		var stylesheets:Array<MetadataEntry> = [];
 
 		for (m in cls.meta.get())
 			patchMeta(m);
@@ -335,85 +313,114 @@ class HaxeBoxMacro {
 			cls.meta.remove(":native");
 		cls.meta.add(":native", [macro $v{clsModule}], cls.pos);
 		cls.meta.add(":nativeGen", [], cls.pos);
+
 		if (cls.meta.has("ui.stylesheet")) {
 			stylesheets = cls.meta.extract("ui.stylesheet");
-			if (!isPanel)
+			if (panelType == None)
 				for (m in stylesheets)
-					Context.warning("This meta will be ignored as the class is not derived from sandbox.PanelComponent or sandbox.ui.Panel", m.pos);
+					Context.warning("ui.stylesheet is ignored because class is not Panel/PanelComponent", m.pos);
 		}
 
 		for (i in 0...fields.length) {
 			var field = fields[i];
-
-			var meta = field.meta ?? [];
 			var hasMarkup = false;
 			var hasTrack = false;
-			for (m in meta) {
+			for (m in field.meta ?? []) {
 				if (patchMeta(m))
 					continue;
-				else if (m.name == "ui.markup")
-					if (isPanel)
+				switch m.name {
+					case "ui.markup":
 						hasMarkup = true;
-					else
-						Context.warning("This meta will be ignored as the class is not derived from sandbox.PanelComponent or sandbox.ui.Panel", m.pos);
-				else if (m.name == "ui.track")
-					if (isPanel)
+					case "ui.track":
 						hasTrack = true;
-					else
-						Context.warning("This meta will be ignored as the class is not derived from sandbox.PanelComponent or sandbox.ui.Panel", m.pos);
+					default:
+				}
 			}
+
+			if ((hasMarkup || hasTrack) && panelType == None)
+				Context.warning("ui.* metadata is ignored because class is not Panel/PanelComponent", field.pos);
 
 			switch field.kind {
 				case FFun(f):
 					if (field.name == "BuildRenderTree") {
 						builder = f;
-						builderRef = macro $i{f.args[0].name};
-					} else if (field.name == "BuildHash")
+						if (f.args.length > 0)
+							builderRef = macro $i{f.args[0].name};
+					} else if (field.name == "BuildHash") {
 						hashBuilder = f;
-					else if (field.name == "OnTreeFirstBuilt")
-						builderCb = f;
-					else if (hasMarkup) {
+					} else if (field.name == "GetRenderTreeChecksum") {
+						checksumBuilder = f;
+					} else if (panelType == Panel && field.name == "new") {
+						constructor = f;
+					} else if (panelType == PanelComponent && field.name == "OnTreeFirstBuilt") {
+						constructor = f;
+					} else if (hasMarkup && panelType != None) {
 						markups.push(field);
 						markupIds.push(i);
 					}
-				case FVar(t, e):
-					if (hasTrack)
+				case FVar(_, _):
+					if (hasTrack && panelType != None)
 						tracks.push(field.name);
 				case FProp(get, set, t, e):
-					if (hasTrack)
+					if (hasTrack && panelType != None)
 						tracks.push(buildProp(field, get, set, t, e, fields));
 			}
 		}
 
-		for (i in 0...markupIds.length) {
-			var idx = markupIds[markupIds.length - i - 1];
-			fields.splice(idx, 1);
-		}
+		for (idx in markupIds)
+			fields.splice(idx - markupIds.indexOf(idx), 1);
 
-		if (isPanel) {
-			buildStyleSheets(stylesheets, builderCb, fields);
-			buildTracks(tracks, hashBuilder, fields);
-			var m = buildMarkups(markups, builderRef, fields, classTypes);
-			if (builder != null)
-				if (builder.expr == null)
-					builder.expr = m;
-				else
-					builder.expr = macro {
-						${builder.expr};
-						$m;
-					}
-		}
+		if (panelType == None)
+			return fields;
+
+		buildStyleSheets(stylesheets, constructor, fields, panelType);
+		buildTracks(tracks, hashBuilder, fields);
+		buildChecksum(markups, checksumBuilder, fields, panelType, clsModule);
+
+		var markupExpr = buildMarkups(markups, builderRef, fields);
+		if (builder != null)
+			builder.expr = builder.expr == null ? markupExpr : macro {
+				${builder.expr};
+				$markupExpr;
+			};
 
 		return fields;
 	}
 
-	static function isDerivedFromPanel(cls:ClassType) {
-		var sup = cls.superClass?.t.get();
-		if (sup == null)
-			return cls.module == "sandbox.PanelComponent" || cls.module == "sandbox.ui.Panel";
-		if (cls.module == "sandbox.PanelComponent" || cls.module == "sandbox.ui.Panel")
-			return true;
-		return isDerivedFromPanel(sup);
+	static function buildChecksum(markups:Array<Field>, checksumBuilder:Function, fields:Array<Field>, panelType:PanelType, clsModule:String) {
+		if (panelType != Panel || checksumBuilder != null || markups.length == 0)
+			return;
+
+		var seed = clsModule;
+		for (field in markups)
+			switch field.kind {
+				case FFun(f) if (f.expr != null):
+					seed += "|" + field.name + ":" + haxe.macro.ExprTools.toString(f.expr);
+				default:
+			}
+
+		var pos = Context.currentPos();
+		fields.push({
+			meta: [{name: ":protected", pos: pos}],
+			name: "GetRenderTreeChecksum",
+			access: [AOverride],
+			kind: FFun({
+				args: [],
+				ret: macro :String,
+				expr: macro return $v{clsModule + ".markup." + Md5.encode(seed)}
+			}),
+			pos: pos
+		});
+	}
+
+	static function getPanelType(cls:ClassType):PanelType {
+		return switch cls.module {
+			case "sandbox.PanelComponent": PanelComponent;
+			case "sandbox.ui.Panel": Panel;
+			default:
+				var sup = cls.superClass?.t.get();
+				sup == null ? None : getPanelType(sup);
+		};
 	}
 
 	static function patchMeta(m:MetadataEntry) {
@@ -430,339 +437,322 @@ class HaxeBoxMacro {
 		return false;
 	}
 
-	static function buildStyleSheets(meta:Array<MetadataEntry>, builderCb:Function, fields:Array<Field>) {
+	static function buildStyleSheets(meta:Array<MetadataEntry>, existing:Function, fields:Array<Field>, panelType:PanelType) {
 		if (meta.length == 0)
 			return;
 
-		var expr = macro $b{
-			[
-				for (m in meta) {
-					var params = m.params ?? [];
-					if (params.length > 0) for (p in params)
-						switch p.expr {
-							case EConst(CString(s, kind)):
-								macro try {
-									Panel.StyleSheet.Load(${v(s, kind)}, true, false);
-								} catch (e) {
-									Log.Warning("Failed to load stylesheet: " + e.message);
-								}
-							default:
-								Context.reportError("String literal expected", p.pos);
-								continue;
-						}
+		var loads:Array<Expr> = [];
+		for (m in meta)
+			for (p in m.params ?? [])
+				switch p.expr {
+					case EConst(CString(s, _)):
+						var loadExpr = switch panelType {
+							case Panel: macro StyleSheet.Load($v{s}, true, false);
+							case PanelComponent: macro Panel.StyleSheet.Load($v{s}, true, false);
+							default: macro null;
+						};
+						loads.push(macro try {
+							$loadExpr;
+						} catch (e) {
+							Log.Warning("Failed to load stylesheet: " + e.message);
+						});
+					default:
+						Context.reportError("String literal expected", p.pos);
 				}
-			]
+
+		if (loads.length == 0)
+			return;
+
+		var body = macro $b{loads};
+		if (existing != null) {
+			existing.expr = existing.expr == null ? body : macro {
+				${existing.expr};
+				$body;
+			};
+			return;
 		}
 
-		if (builderCb != null)
-			builderCb.expr = macro {${builderCb.expr}; $expr;}
-		else
-			fields.push({
-				meta: [
-					{
-						name: ":protected",
-						pos: Context.currentPos()
-					}
-				],
-				name: "OnTreeFirstBuilt",
-				access: [AOverride],
-				kind: FFun({
-					args: [],
-					expr: expr
-				}),
-				pos: Context.currentPos()
-			});
-	}
-
-	static function buildProp(field:Field, get:String, set:String, t:ComplexType, e:Expr, fields:Array<Field>) {
-		var realFieldName = field.name;
-		if (get == "get" || set == "set") {
-			var pos = Context.currentPos();
-			field.kind = FProp("get", "set", t, null);
-
-			realFieldName = 'var_$realFieldName';
-			var realField = macro $i{realFieldName};
-			fields.push(modifyAccess({
-				name: realFieldName,
-				kind: FVar(t, e),
-				pos: pos
-			}));
-			if (get != "get")
-				fields.push(modifyAccess({
-					name: 'get_${field.name}',
-					access: [APrivate],
+		var pos = Context.currentPos();
+		switch panelType {
+			case PanelComponent:
+				fields.push({
+					meta: [{name: ":protected", pos: pos}],
+					name: "OnTreeFirstBuilt",
+					access: [AOverride],
+					kind: FFun({args: [], expr: body}),
+					pos: pos
+				});
+			case Panel:
+				fields.push({
+					name: "new",
+					access: [APublic],
 					kind: FFun({
 						args: [],
-						expr: macro return $realField
+						expr: macro {
+							super();
+							$body;
+						}
 					}),
 					pos: pos
-				}));
-			if (set != "set")
-				fields.push(modifyAccess({
-					name: 'set_${field.name}',
-					access: [APrivate],
-					kind: FFun({
-						args: [
-							{
-								name: "value"
-							}
-						],
-						expr: macro return $realField = value
-					}),
-					pos: pos
-				}));
-
-			var meta = field.meta;
-			if (meta == null) {
-				meta = [];
-				field.meta = meta;
-			}
-			var isProp = false;
-			var i = 0;
-			while (i < meta.length) {
-				var m = meta[i];
-				if (m.name == ":property") {
-					isProp = true;
-					i++;
-				} else if (m.name == ":isVar") {
-					Context.warning('This meta will be removed. Use $realFieldName to access physical field', m.pos);
-					meta.splice(i, 1);
-				} else
-					i++;
-			}
-			if (!isProp)
-				meta.push({
-					name: ":property",
-					pos: field.pos
 				});
+			case None:
 		}
-		return realFieldName;
+	}
+
+	static function buildProp(field:Field, get:String, set:String, t:ComplexType, e:Expr, fields:Array<Field>):String {
+		if (get != "get" && set != "set")
+			return field.name;
+
+		var pos = Context.currentPos();
+		var name = field.name;
+		var backing = "var_" + name;
+		field.kind = FProp("get", "set", t, null);
+
+		fields.push({
+			meta: [{name: ":protected", pos: field.pos}],
+			name: backing,
+			kind: FVar(t, e),
+			pos: pos
+		});
+
+		if (get != "get") {
+			fields.push({
+				meta: [{name: ":protected", pos: field.pos}],
+				name: "get_" + name,
+				kind: FFun({args: [], expr: macro return $i{backing}}),
+				pos: pos
+			});
+		}
+
+		if (set != "set") {
+			fields.push({
+				meta: [{name: ":protected", pos: field.pos}],
+				name: "set_" + name,
+				kind: FFun({
+					args: [{name: "value"}],
+					expr: macro return $i{backing} = value
+				}),
+				pos: pos
+			});
+		}
+
+		var meta = field.meta;
+		if (meta == null) {
+			meta = [];
+			field.meta = meta;
+		}
+		var hasProperty = false;
+		for (m in meta)
+			if (m.name == ":property") {
+				hasProperty = true;
+				break;
+			}
+		if (!hasProperty)
+			meta.push({name: ":property", pos: field.pos});
+
+		return backing;
 	}
 
 	static function buildTracks(tracks:Array<String>, hashBuilder:Function, fields:Array<Field>) {
 		if (tracks.length == 0)
 			return;
 
-		var pos = Context.currentPos();
-		var exprs = [];
-		exprs.push(macro var __h = new system.HashCode());
+		var exprs:Array<Expr> = [macro var __h = new system.HashCode()];
 		if (hashBuilder?.expr != null)
 			exprs.push(macro __h.Add(${hashBuilder.expr}));
 		for (track in tracks)
 			exprs.push(macro __h.Add($i{track}));
 		exprs.push(macro return __h.ToHashCode());
 
-		var expr = macro $b{exprs};
-		if (hashBuilder == null)
-			fields.push({
-				meta: [
-					{
-						name: ":protected",
-						pos: pos
-					}
-				],
-				name: "BuildHash",
-				access: [AOverride],
-				kind: FFun({
-					args: [],
-					expr: expr
-				}),
-				pos: pos
-			});
-		else
-			hashBuilder.expr = expr;
+		var body = macro $b{exprs};
+		if (hashBuilder != null) {
+			hashBuilder.expr = body;
+			return;
+		}
+
+		var pos = Context.currentPos();
+		fields.push({
+			meta: [{name: ":protected", pos: pos}],
+			name: "BuildHash",
+			access: [AOverride],
+			kind: FFun({args: [], expr: body}),
+			pos: pos
+		});
 	}
 
-	static function buildMarkups(markups:Array<Field>, builderRef:Expr, fields:Array<Field>, classTypes:Map<String, ComplexType>):Expr {
+	static function buildMarkups(markups:Array<Field>, builderRef:Expr, fields:Array<Field>):Expr {
 		if (markups.length == 0)
 			return macro {};
 
 		var pushBuilder = builderRef == null;
-		if (pushBuilder)
+		if (builderRef == null)
 			builderRef = macro builder;
 
-		var exprs = [macro var __b = cast($builderRef, sandbox.ui.PanelRenderTreeBuilder)];
-		for (field in markups) {
+		var exprs:Array<Expr> = [macro var __b = cast($builderRef, sandbox.ui.PanelRenderTreeBuilder)];
+		for (field in markups)
 			switch field.kind {
-				case FFun(f):
-					if (f.expr != null) {
-						exprs.push(macro var __s = 0);
-						exprs.push(buildMarkup(f.expr, fields, classTypes));
-					}
+				case FFun(f) if (f.expr != null):
+					var seq:SeqState = {value: 0};
+					exprs.push(buildMarkup(f.expr, fields, seq));
 				default:
 					Context.warning("Usage: @ui.markup function ...", field.pos);
 			}
-		}
 
-		var expr = macro $b{exprs};
+		var body = macro $b{exprs};
 		if (pushBuilder) {
 			var pos = Context.currentPos();
 			fields.push({
-				meta: [
-					{
-						name: ":protected",
-						pos: pos
-					}
-				],
+				meta: [{name: ":protected", pos: pos}],
 				name: "BuildRenderTree",
 				access: [AOverride],
 				kind: FFun({
-					args: [
-						{
-							name: "builder",
-							type: macro :microsoft.aspnetcore.components.rendering.RenderTreeBuilder
-						}
-					],
-					expr: expr
+					args: [{name: "builder", type: macro :microsoft.aspnetcore.components.rendering.RenderTreeBuilder}],
+					expr: body
 				}),
 				pos: pos
 			});
 		}
-		return expr;
+		return body;
 	}
 
-	static function buildMarkup(expr:Null<Expr>, fields:Array<Field>, classTypes:Map<String, ComplexType>):Null<Expr> {
-		return expr == null ? null : {
+	static function buildMarkup(expr:Null<Expr>, fields:Array<Field>, seq:SeqState):Null<Expr> {
+		if (expr == null || expr.expr == null)
+			return expr;
+
+		return {
 			expr: switch expr.expr {
 				case EBlock(exprs):
-					EBlock(exprs.map(e -> buildMarkup(e, fields, classTypes)));
+					EBlock(exprs.map(e -> buildMarkup(e, fields, seq)));
 				case EIf(econd, eif, eelse):
-					EIf(econd, buildMarkup(eif, fields, classTypes), buildMarkup(eelse, fields, classTypes));
+					EIf(econd, buildMarkup(eif, fields, seq), buildMarkup(eelse, fields, seq));
 				case EFor(it, e):
-					EFor(it, buildMarkup(e, fields, classTypes));
+					EFor(it, buildMarkup(e, fields, seq));
 				case EWhile(econd, e, normalWhile):
-					EWhile(econd, buildMarkup(e, fields, classTypes), normalWhile);
+					EWhile(econd, buildMarkup(e, fields, seq), normalWhile);
 				case ESwitch(e, cases, edef):
 					ESwitch(e, cases.map(c -> {
 						values: c.values,
 						guard: c.guard,
-						expr: buildMarkup(c.expr, fields, classTypes)
-					}), buildMarkup(edef, fields, classTypes));
-				case EConst(_):
-					(macro __b.AddContent($seq, $expr)).expr;
+						expr: buildMarkup(c.expr, fields, seq)
+					}), buildMarkup(edef, fields, seq));
+				case EConst(_), EField(_, _):
+					(macro __b.AddContent(${nextSeqExpr(seq)}, $expr)).expr;
 				case EMeta(m, e) if (m.name == ":text" || m.name == ":content"):
-					(macro __b.AddContent($seq, $e)).expr;
-				case EMeta(m, e) if (m.name.charAt(0) != ":"):
-					buildNode(m, e, fields, classTypes);
-				default: expr.expr;
+					(macro __b.AddContent(${nextSeqExpr(seq)}, $e)).expr;
+				case EMeta(m, e) if (!m.name.startsWith(":")):
+					buildNode(m, e, fields, seq);
+				default:
+					expr.expr;
 			},
 			pos: expr.pos
-		}
+		};
 	}
 
-	static function buildNode(meta:MetadataEntry, expr:Expr, fields:Array<Field>, classTypes:Map<String, ComplexType>) {
+	static function resolveTag(name:String):String {
+		if (TAGS.exists(name))
+			return TAGS[name];
+		if (name.length > 0) {
+			var c = name.charCodeAt(0);
+			if (c >= 97 && c <= 122)
+				return "sandbox.ui.Panel";
+		}
+		return name;
+	}
+
+	static function buildNode(meta:MetadataEntry, expr:Expr, fields:Array<Field>, seq:SeqState) {
 		if (meta.name == "style")
-			return (macro __b.AddStyleDefinitions($seq, $expr)).expr;
+			return (macro __b.AddStyleDefinitions(${nextSeqExpr(seq)}, $expr)).expr;
 
-		var className = TAGS.exists(meta.name) ? TAGS.get(meta.name) : meta.name;
-
-		var classType = classTypes.get(className);
-		if (classType == null) {
-			classType = try {
-				Context.toComplexType(Context.getType(className));
-			} catch (e) {
-				Context.reportError(e.message, meta.pos);
-				return expr.expr;
-			}
-			classTypes.set(className, classType);
+		var className = resolveTag(meta.name);
+		var native = try {
+			getNative(className);
+		} catch (e) {
+			Context.reportError(e.message, meta.pos);
+			return expr.expr;
 		}
 
-		var elExprs = new Array<Expr>();
-		elExprs.push(macro __b.OpenElement($seq, $v{className}));
+		var elExprs:Array<Expr> = [];
+		var openSeq = nextSeqInt(seq);
+		elExprs.push(macro untyped __cs__($v{'__b.OpenElement<global::$native>($openSeq)'}));
 		for (p in meta.params ?? [])
-			buildAttr(elExprs, p, classType, fields);
-		elExprs.push(buildMarkup(expr, fields, classTypes));
+			buildAttr(elExprs, p, className, fields, seq);
+		var child = buildMarkup(expr, fields, seq);
+		if (child != null)
+			elExprs.push(child);
 		elExprs.push(macro __b.CloseElement());
-
 		return EBlock(elExprs);
 	}
 
-	static function buildAttr(elExprs:Array<Expr>, p:Expr, classType:ComplexType, fields:Array<Field>) {
+	static function getNative(name:String):String {
+		var cls = Context.getType(name).getClass();
+		if (cls == null)
+			throw '$name is not a class';
+		for (m in cls.meta.extract(":native"))
+			for (p in m.params)
+				switch p.expr {
+					case EConst(CString(s)): return s;
+					default:
+				}
+		throw '$name does not have native path';
+	}
+
+	static function buildAttr(elExprs:Array<Expr>, p:Expr, className:String, fields:Array<Field>, seq:SeqState) {
 		function addRef(e:Expr) {
 			switch e.expr {
 				case EConst(CIdent(s)):
 					fields.push({
 						name: s,
-						kind: FVar(classType, null),
+						kind: FVar(try {
+							Context.getType(className).toComplexType();
+						} catch (er) {
+							Context.reportError(er.message, e.pos);
+							return;
+						}, null),
 						pos: Context.currentPos()
 					});
-					elExprs.push(macro untyped __cs__($v{'__b.AddReferenceCapture(__s++, {0}, p => {0} = p)'}, $i{s}));
+					var refSeq = nextSeqInt(seq);
+					elExprs.push(macro untyped __cs__($v{'__b.AddReferenceCapture($refSeq, {0}, p => {0} = p)'}, $i{s}));
 				default:
 					throw "Identifier expected";
 			}
 		}
 
 		switch p.expr {
-			case EUnop(op, postFix, e):
+			case EUnop(op, _, e):
 				switch op {
 					case OpNegBits:
-						try {
-							addRef(e);
-						} catch (err) {
-							Context.reportError(err.message, e.pos);
-							return;
-						}
+						try addRef(e) catch (err) Context.reportError(err.message, e.pos);
 					case OpNeg:
-						elExprs.push(macro __b.AddAttributeString($seq, "class", $e));
+						elExprs.push(macro __b.AddAttributeString(${nextSeqExpr(seq)}, "class", $e));
 					default:
 						Context.reportError("Unknown shortcut", p.pos);
-						return;
 				}
-			case EBinop(op, e1, e2):
-				switch op {
-					case OpAssign:
-						var attr = switch e1.expr {
-							case EConst(CIdent(s)), EConst(CString(s)):
-								s;
-							default:
-								Context.reportError("Dynamic attributes are not supported", e1.pos);
-								return;
-						}
-
-						if (attr.startsWith("on")) {
-							elExprs.push(macro var __a = $e2);
-							elExprs.push(macro untyped __cs__($v{'__b.AddAttributeAction(__s++, "$attr", () => {0}.__hx_invoke0_o())'}, __a));
-						} else if (attr == "@ref") {
-							try {
-								addRef(e2);
-							} catch (e) {
-								Context.reportError(e.message, e2.pos);
-								return;
-							}
-						} else {
-							elExprs.push(macro __b.AddAttributeString($seq, $v{attr}, cast $e2));
-						}
-
+			case EBinop(OpAssign, e1, e2):
+				var attr = switch e1.expr {
+					case EConst(CIdent(s)), EConst(CString(s)): s;
 					default:
-						Context.reportError("Assign expected", p.pos);
+						Context.reportError("Dynamic attributes are not supported", e1.pos);
 						return;
+				};
+
+				if (attr.startsWith("on")) {
+					elExprs.push(macro final __a:Void->Void = ${
+						switch e2.expr {
+							case EFunction(_): e2;
+							default: macro () -> $e2();
+						}
+					});
+					var actionSeq = nextSeqInt(seq);
+					elExprs.push(macro untyped __cs__($v{'__b.AddAttributeAction($actionSeq, "$attr", () => {0}.__hx_invoke0_o())'}, __a));
+				} else if (attr == "@ref") {
+					try addRef(e2) catch (err) Context.reportError(err.message, e2.pos);
+				} else {
+					elExprs.push(macro __b.AddAttributeString(${nextSeqExpr(seq)}, $v{attr}, cast $e2));
 				}
 			default:
-				Context.reportError("Invalid expression", p.pos);
-				return;
+				Context.reportError("Invalid attribute expression", p.pos);
 		}
-	}
-
-	static function v(s:String, ?kind:StringLiteralKind) {
-		return kind == null ? null : switch kind {
-			case DoubleQuotes: macro $v{s};
-			case SingleQuotes: MacroStringTools.formatString(s, Context.currentPos());
-		}
-	}
-
-	static function modifyAccess(field:Field) {
-		if (!(field.access ?? []).contains(APublic)) {
-			if (field.meta == null)
-				field.meta = [];
-			for (m in field.meta)
-				if (m.name == ":protected")
-					return field;
-			field.meta.push({
-				name: ":protected",
-				pos: field.pos
-			});
-		}
-		return field;
 	}
 	#end
 }
+
