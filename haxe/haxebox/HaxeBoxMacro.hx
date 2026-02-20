@@ -207,7 +207,6 @@ class HaxeBoxMacro {
 		"WideMode" => "Sandbox.WideModeAttribute",
 	];
 
-
 	static inline function nextSeqInt(seq:SeqState):Int
 		return seq.value++;
 
@@ -215,9 +214,9 @@ class HaxeBoxMacro {
 		return macro $v{seq.value++};
 
 	public static function init() {
-		Compiler.registerCustomMetadata({metadata: "ui.track", doc: "Track field to update UI"});
-		Compiler.registerCustomMetadata({metadata: "ui.markup", doc: "Build UI from markup expression"});
-		Compiler.registerCustomMetadata({metadata: "ui.stylesheet", doc: "Specify stylesheet path"});
+		Compiler.registerCustomMetadata({metadata: ":ui.attr", doc: "Make field available as a node attribute"});
+		Compiler.registerCustomMetadata({metadata: ":ui.track", doc: "Track expressions for a @:ui.markup function to update UI"});
+		Compiler.registerCustomMetadata({metadata: ":ui.markup", doc: "Build UI from markup expression"});
 
 		var project = Context.definedValue("PROJECT_PATH");
 		var haxebox = Context.definedValue("HAXEBOX_PATH");
@@ -284,6 +283,7 @@ class HaxeBoxMacro {
 
 	public static function build():Array<Field> {
 		var fields = Context.getBuildFields() ?? [];
+
 		var cls = Context.getLocalClass()?.get();
 		if (cls == null)
 			return fields;
@@ -295,7 +295,7 @@ class HaxeBoxMacro {
 			clsModule += "." + cls.name;
 
 		var panelType = getPanelType(cls);
-		var tracks:Array<String> = [];
+		var tracks:Array<Expr> = [];
 		var markups:Array<Field> = [];
 		var markupIds:Array<Int> = [];
 		var builder:Function = null;
@@ -303,7 +303,7 @@ class HaxeBoxMacro {
 		var checksumBuilder:Function = null;
 		var constructor:Function = null;
 		var builderRef:Expr = null;
-		var stylesheets:Array<MetadataEntry> = [];
+		var stylesheets:Array<String> = [];
 
 		for (m in cls.meta.get())
 			patchMeta(m);
@@ -314,25 +314,31 @@ class HaxeBoxMacro {
 		cls.meta.add(":native", [macro $v{clsModule}], cls.pos);
 		cls.meta.add(":nativeGen", [], cls.pos);
 
-		if (cls.meta.has("ui.stylesheet")) {
-			stylesheets = cls.meta.extract("ui.stylesheet");
-			if (panelType == None)
-				for (m in stylesheets)
-					Context.warning("ui.stylesheet is ignored because class is not Panel/PanelComponent", m.pos);
-		}
-
 		for (i in 0...fields.length) {
 			var field = fields[i];
 			var hasMarkup = false;
 			var hasTrack = false;
+			var hasAttr = false;
+			var fieldTracks:Array<Expr> = [];
 			for (m in field.meta ?? []) {
 				if (patchMeta(m))
 					continue;
 				switch m.name {
-					case "ui.markup":
+					case ":ui.markup":
 						hasMarkup = true;
-					case "ui.track":
+						for (p in m.params ?? [])
+							switch p.expr {
+								case EConst(CString(s)):
+									stylesheets.push(s);
+								default:
+									Context.reportError("String literal expected", p.pos);
+							}
+					case ":ui.track":
 						hasTrack = true;
+						for (p in m.params ?? [])
+							fieldTracks.push(p);
+					case ":ui.attr":
+						hasAttr = true;
 					default:
 				}
 			}
@@ -342,6 +348,14 @@ class HaxeBoxMacro {
 
 			switch field.kind {
 				case FFun(f):
+					if (hasAttr)
+						Context.warning("Functions can't be UI attributes", field.pos);
+					if (hasTrack && !hasMarkup)
+						Context.warning("ui.track is ignored because it should be used on the same function as ui.markup", field.pos);
+					if (hasTrack && hasMarkup)
+						for (track in fieldTracks)
+							tracks.push(track);
+
 					if (field.name == "BuildRenderTree") {
 						builder = f;
 						if (f.args.length > 0)
@@ -358,37 +372,47 @@ class HaxeBoxMacro {
 						markups.push(field);
 						markupIds.push(i);
 					}
-				case FVar(_, _):
-					if (hasTrack && panelType != None)
-						tracks.push(field.name);
 				case FProp(get, set, t, e):
-					if (hasTrack && panelType != None)
-						tracks.push(buildProp(field, get, set, t, e, fields));
+					if (!buildProp(field, get, set, t, e, fields) && hasAttr)
+						field.meta?.push({
+							name: ":property",
+							pos: field.pos
+						});
+				default:
+					if (hasAttr)
+						field.meta?.push({
+							name: ":property",
+							pos: field.pos
+						});
+					if (hasTrack)
+						Context.warning("ui.track is ignored because it can only be used on a function", field.pos);
+					continue;
 			}
 		}
-
-		for (idx in markupIds)
-			fields.splice(idx - markupIds.indexOf(idx), 1);
 
 		if (panelType == None)
 			return fields;
 
+		#if (display_details != 1)
 		buildStyleSheets(stylesheets, constructor, fields, panelType);
 		buildTracks(tracks, hashBuilder, fields);
 		buildChecksum(markups, checksumBuilder, fields, panelType, clsModule);
 
+		for (idx in markupIds)
+			fields.splice(idx - markupIds.indexOf(idx), 1);
 		var markupExpr = buildMarkups(markups, builderRef, fields);
 		if (builder != null)
 			builder.expr = builder.expr == null ? markupExpr : macro {
 				${builder.expr};
 				$markupExpr;
 			};
+		#end
 
 		return fields;
 	}
 
 	static function buildChecksum(markups:Array<Field>, checksumBuilder:Function, fields:Array<Field>, panelType:PanelType, clsModule:String) {
-		if (panelType != Panel || checksumBuilder != null || markups.length == 0)
+		if (panelType == None || checksumBuilder != null || markups.length == 0)
 			return;
 
 		var seed = clsModule;
@@ -437,33 +461,30 @@ class HaxeBoxMacro {
 		return false;
 	}
 
-	static function buildStyleSheets(meta:Array<MetadataEntry>, existing:Function, fields:Array<Field>, panelType:PanelType) {
-		if (meta.length == 0)
+	static function buildStyleSheets(stylesheets:Array<String>, existing:Function, fields:Array<Field>, panelType:PanelType) {
+		if (stylesheets.length == 0)
 			return;
 
-		var loads:Array<Expr> = [];
-		for (m in meta)
-			for (p in m.params ?? [])
-				switch p.expr {
-					case EConst(CString(s, _)):
-						var loadExpr = switch panelType {
-							case Panel: macro StyleSheet.Load($v{s}, true, false);
-							case PanelComponent: macro Panel.StyleSheet.Load($v{s}, true, false);
-							default: macro null;
+		var body = macro $b{
+			[
+				for (s in stylesheets)
+					macro try {
+						${
+							switch panelType {
+								case Panel:
+									macro StyleSheet.Load($v{s}, false, false);
+								case PanelComponent:
+									macro Panel.StyleSheet.Load($v{s}, false, false);
+								default:
+									macro null;
+							}
 						};
-						loads.push(macro try {
-							$loadExpr;
-						} catch (e) {
-							Log.Warning("Failed to load stylesheet: " + e.message);
-						});
-					default:
-						Context.reportError("String literal expected", p.pos);
-				}
+					} catch (e) {
+						Log.Warning("Failed to load stylesheet: " + e.message);
+					}
+			]
+		};
 
-		if (loads.length == 0)
-			return;
-
-		var body = macro $b{loads};
 		if (existing != null) {
 			existing.expr = existing.expr == null ? body : macro {
 				${existing.expr};
@@ -499,9 +520,9 @@ class HaxeBoxMacro {
 		}
 	}
 
-	static function buildProp(field:Field, get:String, set:String, t:ComplexType, e:Expr, fields:Array<Field>):String {
+	static function buildProp(field:Field, get:String, set:String, t:ComplexType, e:Expr, fields:Array<Field>):Bool {
 		if (get != "get" && set != "set")
-			return field.name;
+			return false;
 
 		var pos = Context.currentPos();
 		var name = field.name;
@@ -550,10 +571,10 @@ class HaxeBoxMacro {
 		if (!hasProperty)
 			meta.push({name: ":property", pos: field.pos});
 
-		return backing;
+		return true;
 	}
 
-	static function buildTracks(tracks:Array<String>, hashBuilder:Function, fields:Array<Field>) {
+	static function buildTracks(tracks:Array<Expr>, hashBuilder:Function, fields:Array<Field>) {
 		if (tracks.length == 0)
 			return;
 
@@ -561,7 +582,7 @@ class HaxeBoxMacro {
 		if (hashBuilder?.expr != null)
 			exprs.push(macro __h.Add(${hashBuilder.expr}));
 		for (track in tracks)
-			exprs.push(macro __h.Add($i{track}));
+			exprs.push(macro __h.Add($track));
 		exprs.push(macro return __h.ToHashCode());
 
 		var body = macro $b{exprs};
@@ -606,7 +627,9 @@ class HaxeBoxMacro {
 				name: "BuildRenderTree",
 				access: [AOverride],
 				kind: FFun({
-					args: [{name: "builder", type: macro :microsoft.aspnetcore.components.rendering.RenderTreeBuilder}],
+					args: [
+						{name: "builder", type: macro :microsoft.aspnetcore.components.rendering.RenderTreeBuilder}
+					],
 					expr: body
 				}),
 				pos: pos
@@ -635,10 +658,10 @@ class HaxeBoxMacro {
 						guard: c.guard,
 						expr: buildMarkup(c.expr, fields, seq)
 					}), buildMarkup(edef, fields, seq));
-				case EConst(_), EField(_, _):
-					(macro __b.AddContent(${nextSeqExpr(seq)}, $expr)).expr;
+				case EConst(_), EField(_, _), EArray(_, _):
+					(macro __b.AddContent(${nextSeqExpr(seq)}, Std.string($expr))).expr;
 				case EMeta(m, e) if (m.name == ":text" || m.name == ":content"):
-					(macro __b.AddContent(${nextSeqExpr(seq)}, $e)).expr;
+					(macro __b.AddContent(${nextSeqExpr(seq)}, Std.string($e))).expr;
 				case EMeta(m, e) if (!m.name.startsWith(":")):
 					buildNode(m, e, fields, seq);
 				default:
@@ -690,7 +713,8 @@ class HaxeBoxMacro {
 		for (m in cls.meta.extract(":native"))
 			for (p in m.params)
 				switch p.expr {
-					case EConst(CString(s)): return s;
+					case EConst(CString(s)):
+						return s;
 					default:
 				}
 		throw '$name does not have native path';
@@ -739,13 +763,16 @@ class HaxeBoxMacro {
 					elExprs.push(macro final __a:Void->Void = ${
 						switch e2.expr {
 							case EFunction(_): e2;
-							default: macro () -> $e2();
+							default: macro() -> $e2();
 						}
 					});
 					var actionSeq = nextSeqInt(seq);
 					elExprs.push(macro untyped __cs__($v{'__b.AddAttributeAction($actionSeq, "$attr", () => {0}.__hx_invoke0_o())'}, __a));
 				} else if (attr == "@ref") {
-					try addRef(e2) catch (err) Context.reportError(err.message, e2.pos);
+					try
+						addRef(e2)
+					catch (err)
+						Context.reportError(err.message, e2.pos);
 				} else {
 					elExprs.push(macro __b.AddAttributeString(${nextSeqExpr(seq)}, $v{attr}, cast $e2));
 				}
@@ -755,4 +782,3 @@ class HaxeBoxMacro {
 	}
 	#end
 }
-
