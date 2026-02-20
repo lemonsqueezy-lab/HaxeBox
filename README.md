@@ -2,6 +2,8 @@
 
 HaxeBox is a library for developing s&box projects with Haxe.
 
+s&box package: https://sbox.game/lemonsqueezy/haxebox
+
 ## What is included
 
 - Sandbox API support with automatic extern type generation.
