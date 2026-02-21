@@ -51,61 +51,61 @@ During build, HaxeBox automatically rewrites `build.hxml` in the project root. E
 
 UI markup is available for classes that inherit directly (or indirectly) from `sandbox.ui.Panel` or `sandbox.PanelComponent`.
 
-Such classes support special `ui` metadata:
+Such classes support special `ui` metadata (on class level):
 
-- `@:ui.markup("...scss")` generates `BuildRenderTree` and automatically loads stylesheet.
+- `@:ui.markup(...)` generates `BuildRenderTree` from markup expression(s).
+- `@:ui.stylesheet(...)` auto-loads stylesheet(s) (`StyleSheet.Load` / `Panel.StyleSheet.Load`).
 - `@:ui.track(...)` generates `BuildHash` so the panel updates when dependencies change.
-- `@:ui.attr` marks a field/property as a node attribute, so it can be set from markup (`@MyPanel(name = "...")`).
+- `@:ui.attr` (on field/property) marks it as a node attribute, so it can be set from markup (`@MyPanel(name = "...")`).
 
 Example:
 
 ```haxe
+@:ui.stylesheet("styles/Profile.scss")
+@:ui.track(name)
+@:ui.markup({
+	@label name;
+})
 class Profile extends sandbox.ui.Panel {
 	@:ui.attr public var name:String;
-
-	@:ui.markup("styles/Profile.scss")
-	function render() {
-		@label name;
-	}
 }
 
+@:ui.stylesheet("styles/Root.scss")
+@:ui.markup({
+	@Profile(name = "smoothie") {}
+})
 class Root extends sandbox.PanelComponent {
-	@:ui.markup("styles/Root.scss")
-	function render() {
-		@Profile(name = "smoothie") {}
-	}
 }
 ```
 
 ## `@:ui.markup` syntax
 
 ```haxe
-class MyPanel extends sandbox.ui.Panel {
-	public var name:String = "player";
+@:ui.stylesheet("styles/MyPanel.scss")
+@:ui.track(name)
+@:ui.markup({
+	@button(~btn, -"button") @:text "b" + "t" + "n";
 
-	@:ui.track(name)
-	@:ui.markup("styles/MyPanel.scss")
-	function render() {
-		@button(~btn, -"button") @:text "b" + "t" + "n";
-
-		for (i in 0...5) {
-            var img = 'icon$i.png';
-            @div(-"card", onclick = () -> onCardClick(i)) {
-                @img(src = 'images/$img', alt = img) {}
-                @label(-"title") '$name $i';
-            }
+	for (i in 0...5) {
+		var img = 'icon$i.png';
+		@div(-"card", onclick = () -> onCardClick(i)) {
+			@img(src = 'images/$img', alt = img) {}
+			@label(-"title") '$name $i';
 		}
 	}
+})
+class MyPanel extends sandbox.ui.Panel {
+	public var name:String = "player";
 }
 ```
 
-Inside `render()`, a DSL is used with the following rules:
+Inside `@:ui.markup(...)`, a DSL is used with the following rules:
 - nodes are opened with `@*node type*` (for example `@div` / `@button` / `@img`, etc.)
 - node attributes are listed in parentheses right after node type: `(*key* = *value*, ...)`.
 - child nodes are taken from the next expression (or expression block for multiple child nodes).
 - to insert text content into a node, wrap expression with `@:text` or `@:content`
 
-> **Note:** markup functions are removed and cannot be used in code!
+> **Note:** markup is now defined directly in class metadata expressions (`@:ui.markup(...)`), not in special `render()` functions.
 
 For convenience, you can use shortcuts:
 - `~name` - shortcut for element reference capture (`@ref="name"`).

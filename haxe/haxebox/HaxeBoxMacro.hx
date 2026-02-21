@@ -295,18 +295,17 @@ class HaxeBoxMacro {
 			clsModule += "." + cls.name;
 
 		var panelType = getPanelType(cls);
+
 		var tracks:Array<Expr> = [];
-		var markups:Array<Field> = [];
-		var markupIds:Array<Int> = [];
+		var markups:Array<Expr> = [];
+		var stylesheets:Array<Expr> = [];
+
 		var builder:Function = null;
 		var hashBuilder:Function = null;
 		var checksumBuilder:Function = null;
 		var constructor:Function = null;
 		var builderRef:Expr = null;
-		var stylesheets:Array<String> = [];
 
-		for (m in cls.meta.get())
-			patchMeta(m);
 		if (cls.meta.has(":bridgeProperties"))
 			cls.meta.remove(":bridgeProperties");
 		if (cls.meta.has(":native"))
@@ -314,92 +313,76 @@ class HaxeBoxMacro {
 		cls.meta.add(":native", [macro $v{clsModule}], cls.pos);
 		cls.meta.add(":nativeGen", [], cls.pos);
 
-		for (i in 0...fields.length) {
-			var field = fields[i];
-			var hasMarkup = false;
-			var hasTrack = false;
-			var hasAttr = false;
-			var fieldTracks:Array<Expr> = [];
-			for (m in field.meta ?? []) {
-				if (patchMeta(m))
-					continue;
+		for (m in cls.meta.get())
+			if (!patchMeta(m))
 				switch m.name {
-					case ":ui.markup":
-						hasMarkup = true;
-						for (p in m.params ?? [])
-							switch p.expr {
-								case EConst(CString(s)):
-									stylesheets.push(s);
-								default:
-									Context.reportError("String literal expected", p.pos);
-							}
 					case ":ui.track":
-						hasTrack = true;
 						for (p in m.params ?? [])
-							fieldTracks.push(p);
-					case ":ui.attr":
-						hasAttr = true;
+							tracks.push(p);
+					case ":ui.markup":
+						for (p in m.params ?? [])
+							markups.push(p);
+					case ":ui.stylesheet":
+						for (p in m.params ?? [])
+							stylesheets.push(p);
 					default:
 				}
-			}
 
-			if ((hasMarkup || hasTrack) && panelType == None)
-				Context.warning("ui.* metadata is ignored because class is not Panel/PanelComponent", field.pos);
+		for (i in 0...fields.length) {
+			var field = fields[i];
+			var isAttr = false;
+			for (m in field.meta ?? [])
+				if (!patchMeta(m) && m.name == ":ui.attr")
+					isAttr = true;
 
 			switch field.kind {
 				case FFun(f):
-					if (hasAttr)
+					if (isAttr)
 						Context.warning("Functions can't be UI attributes", field.pos);
-					if (hasTrack && !hasMarkup)
-						Context.warning("ui.track is ignored because it should be used on the same function as ui.markup", field.pos);
-					if (hasTrack && hasMarkup)
-						for (track in fieldTracks)
-							tracks.push(track);
-
-					if (field.name == "BuildRenderTree") {
-						builder = f;
-						if (f.args.length > 0)
-							builderRef = macro $i{f.args[0].name};
-					} else if (field.name == "BuildHash") {
-						hashBuilder = f;
-					} else if (field.name == "GetRenderTreeChecksum") {
-						checksumBuilder = f;
-					} else if (panelType == Panel && field.name == "new") {
-						constructor = f;
-					} else if (panelType == PanelComponent && field.name == "OnTreeFirstBuilt") {
-						constructor = f;
-					} else if (hasMarkup && panelType != None) {
-						markups.push(field);
-						markupIds.push(i);
+					switch field.name {
+						case "BuildRenderTree":
+							builder = f;
+							if (f.args.length > 0) builderRef = macro $i{f.args[0].name};
+						case "BuildHash":
+							hashBuilder = f;
+						case "GetRenderTreeChecksum":
+							checksumBuilder = f;
+						case "new" if (panelType == Panel):
+							constructor = f;
+						case "OnTreeFirstBuilt" if (panelType == PanelComponent):
+							constructor = f;
+						default:
 					}
-				case FProp(get, set, t, e):
-					if (!buildProp(field, get, set, t, e, fields) && hasAttr)
-						field.meta?.push({
-							name: ":property",
-							pos: field.pos
-						});
 				default:
-					if (hasAttr)
-						field.meta?.push({
+					switch field.kind {
+						case FProp(get, set, t, e):
+							isAttr = isAttr && !buildProp(field, get, set, t, e, fields);
+						default:
+					}
+					if (isAttr) {
+						var m = {
 							name: ":property",
 							pos: field.pos
-						});
-					if (hasTrack)
-						Context.warning("ui.track is ignored because it can only be used on a function", field.pos);
-					continue;
+						}
+						if (field.meta == null)
+							field.meta = [m];
+						else
+							field.meta.push(m);
+					}
 			}
 		}
 
-		if (panelType == None)
+		if (panelType == None) {
+			if (tracks.length + markups.length + stylesheets.length > 0)
+				Context.warning("ui.* metadata is ignored because class is not Panel/PanelComponent", cls.pos);
 			return fields;
+		}
 
 		#if (display_details != 1)
 		buildStyleSheets(stylesheets, constructor, fields, panelType);
 		buildTracks(tracks, hashBuilder, fields);
 		buildChecksum(markups, checksumBuilder, fields, panelType, clsModule);
 
-		for (idx in markupIds)
-			fields.splice(idx - markupIds.indexOf(idx), 1);
 		var markupExpr = buildMarkups(markups, builderRef, fields);
 		if (builder != null)
 			builder.expr = builder.expr == null ? markupExpr : macro {
@@ -411,17 +394,13 @@ class HaxeBoxMacro {
 		return fields;
 	}
 
-	static function buildChecksum(markups:Array<Field>, checksumBuilder:Function, fields:Array<Field>, panelType:PanelType, clsModule:String) {
+	static function buildChecksum(markups:Array<Expr>, checksumBuilder:Function, fields:Array<Field>, panelType:PanelType, clsModule:String) {
 		if (panelType == None || checksumBuilder != null || markups.length == 0)
 			return;
 
 		var seed = clsModule;
-		for (field in markups)
-			switch field.kind {
-				case FFun(f) if (f.expr != null):
-					seed += "|" + field.name + ":" + haxe.macro.ExprTools.toString(f.expr);
-				default:
-			}
+		for (m in markups)
+			seed += ":" + haxe.macro.ExprTools.toString(m);
 
 		var pos = Context.currentPos();
 		fields.push({
@@ -461,7 +440,7 @@ class HaxeBoxMacro {
 		return false;
 	}
 
-	static function buildStyleSheets(stylesheets:Array<String>, existing:Function, fields:Array<Field>, panelType:PanelType) {
+	static function buildStyleSheets(stylesheets:Array<Expr>, existing:Function, fields:Array<Field>, panelType:PanelType) {
 		if (stylesheets.length == 0)
 			return;
 
@@ -472,9 +451,9 @@ class HaxeBoxMacro {
 						${
 							switch panelType {
 								case Panel:
-									macro StyleSheet.Load($v{s}, false, false);
+									macro StyleSheet.Load($s, false, false);
 								case PanelComponent:
-									macro Panel.StyleSheet.Load($v{s}, false, false);
+									macro Panel.StyleSheet.Load($s, false, false);
 								default:
 									macro null;
 							}
@@ -601,7 +580,7 @@ class HaxeBoxMacro {
 		});
 	}
 
-	static function buildMarkups(markups:Array<Field>, builderRef:Expr, fields:Array<Field>):Expr {
+	static function buildMarkups(markups:Array<Expr>, builderRef:Expr, fields:Array<Field>):Expr {
 		if (markups.length == 0)
 			return macro {};
 
@@ -609,15 +588,10 @@ class HaxeBoxMacro {
 		if (builderRef == null)
 			builderRef = macro builder;
 
+		var seq:SeqState = {value: 0};
 		var exprs:Array<Expr> = [macro var __b = cast($builderRef, sandbox.ui.PanelRenderTreeBuilder)];
-		for (field in markups)
-			switch field.kind {
-				case FFun(f) if (f.expr != null):
-					var seq:SeqState = {value: 0};
-					exprs.push(buildMarkup(f.expr, fields, seq));
-				default:
-					Context.warning("Usage: @ui.markup function ...", field.pos);
-			}
+		for (m in markups)
+			exprs.push(buildMarkup(m, fields, seq));
 
 		var body = macro $b{exprs};
 		if (pushBuilder) {
