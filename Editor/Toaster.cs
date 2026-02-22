@@ -11,56 +11,29 @@ using Sandbox.UI;
 public static class Toaster {
     static CompileNotice? current;
 
-	public static void CompileStarted(string name = "Haxe", string? subtitle = null) {
-		MainThread.Queue(() => {
-			current = GetOrCreate(Key(name));
-			current.SetCompiling(name, subtitle);
-		});
-	}
+	public static void CompileStarted(string name = "Haxe", string? subtitle = null) =>
+		WithToast(name, t => t.SetCompiling(name, subtitle));
 
-	public static void CompileProgress(string name, string subtitle) {
-		MainThread.Queue(() => {
-			current = GetOrCreate(Key(name));
-			current.SetProgress(subtitle);
-		});
-	}
+	public static void CompileProgress(string name, string subtitle) =>
+		WithToast(name, t => t.SetProgress(subtitle));
 
-	public static void CompileSucceeded(string name = "Haxe", string? subtitle = null, float removeAfterSeconds = 1.0f) {
-		MainThread.Queue(() => {
-			current = GetOrCreate(Key(name));
-			current.SetSuccess(name, subtitle);
+	public static void CompileSucceeded(string name = "Haxe", string? subtitle = null, float removeAfterSeconds = 1.0f) =>
+		WithToast(name, t => {
+			t.SetSuccess(name, subtitle);
 			RemoveCurrent(removeAfterSeconds);
-
-			if (EditorPreferences.NotificationSounds)
-				EditorUtility.PlayRawSound("sounds/editor/success.wav");
+			PlaySound("sounds/editor/success.wav");
 		});
-	}
 
 	public static void CompileFailed(
 		string name = "Haxe",
 		IEnumerable<HaxeDiag>? diagnostics = null,
 		string? subtitle = null,
 		float? removeAfterSeconds = null) {
-		MainThread.Queue(() => {
-			current = GetOrCreate(Key(name));
-			var timeout = removeAfterSeconds ?? EditorPreferences.ErrorNotificationTimeout;
-
-			current.SetFailed(name, subtitle, diagnostics);
-
-			RemoveCurrent(timeout);
-
-			if (EditorPreferences.NotificationSounds)
-				EditorUtility.PlayRawSound("sounds/editor/fail.wav");
-                
-			if (diagnostics != null) {
-				foreach (var d in diagnostics) {
-					if (d.FilePath != null) {
-                        var path = d.FilePath.Replace('\\', '/');
-						HaxeBox.logger.Error($"{path}({d.Line},{d.Column}): error: {d.Message}");
-					} else
-						HaxeBox.logger.Error(d.Message);
-				}
-			}
+		WithToast(name, t => {
+			t.SetFailed(name, subtitle, diagnostics);
+			RemoveCurrent(removeAfterSeconds ?? EditorPreferences.ErrorNotificationTimeout);
+			PlaySound("sounds/editor/fail.wav");
+			LogDiagnostics(diagnostics);
 		});
 	}
 
@@ -75,9 +48,35 @@ public static class Toaster {
 	}
 
     public static void RemoveCurrent(float after = 1.0f) {
-        if (current != null)
-            ToastManager.Remove(current, after);
-    }
+		if (current != null)
+			ToastManager.Remove(current, after);
+	}
+
+	private static void WithToast(string name, Action<CompileNotice> action) {
+		MainThread.Queue(() => {
+			current = GetOrCreate(Key(name));
+			action(current);
+		});
+	}
+
+	private static void PlaySound(string sound) {
+		if (EditorPreferences.NotificationSounds)
+			EditorUtility.PlayRawSound(sound);
+	}
+
+	private static void LogDiagnostics(IEnumerable<HaxeDiag>? diagnostics) {
+		if (diagnostics == null)
+			return;
+
+		foreach (var d in diagnostics) {
+			if (d.FilePath == null) {
+				HaxeBox.logger.Error(d.Message);
+				continue;
+			}
+			var path = d.FilePath.Replace('\\', '/');
+			HaxeBox.logger.Error($"{path}({d.Line},{d.Column}): error: {d.Message}");
+		}
+	}
 
     private static string? ResolveForCodeEditor(string? path) {
         if (string.IsNullOrWhiteSpace(path))
@@ -178,10 +177,7 @@ public static class Toaster {
 	private static string Key(string name) => $"haxe_compile::{name}";
 
 	private static CompileNotice GetOrCreate(string key) {
-		var toast = ToastManager.All.OfType<CompileNotice>().FirstOrDefault(x => x.Key == key);
-		if (toast is null)
-			toast = new CompileNotice(key);
-		return toast;
+		return ToastManager.All.OfType<CompileNotice>().FirstOrDefault(x => x.Key == key) ?? new CompileNotice(key);
 	}
 
 	private sealed class CompileNotice : ToastWidget {
@@ -309,10 +305,8 @@ public static class Toaster {
 
 			var body = new Widget(this) { Layout = Layout.Column() };
 
-			foreach (var d in lines)
-			{
-				var w = body.Layout.Add(new DiagnosticLineWidget(d));
-
+			foreach (var d in lines) {
+				body.Layout.Add(new DiagnosticLineWidget(d));
 				if (d.FilePath != null && d.Line > 0)
 					_jumpTargets.Add((d.FilePath, d.Line, Math.Max(1, d.Column)));
 			}

@@ -14,7 +14,7 @@ sealed class Builder : IDisposable {
 
     int port;
     string haxeCommand;
-    string srcPath;
+    string[] clsPaths;
     string outPath;
     string outPathAbs;
     string[] exclude;
@@ -23,83 +23,119 @@ sealed class Builder : IDisposable {
     readonly object processLock = new();
     readonly List<Action<bool>> pendingCallbacks = new();
 
-    ProcessStartInfo startInfo;
-    ProcessStartInfo serverInfo;
+    ProcessStartInfo startInfo = null!;
+    ProcessStartInfo serverInfo = null!;
     Timer? timer;
-    Watcher codeWatcher;
+    List<Watcher> codeWatchers;
     Process? server;
     Process? buildProcess;
 
     public bool enabled;
 
-    public Builder(int port, string haxeCommand, string srcPath, string outPath, string[] exclude) {
-        this.port = port is > 0 and <= 65535 ? port : 6060;
-        this.haxeCommand = string.IsNullOrWhiteSpace(haxeCommand) ? "haxe" : haxeCommand.Trim();
-        this.srcPath = NormalizePath(srcPath, "code");
-        this.outPath = NormalizePath(outPath, "code/__haxe__");
+    public Builder(int port, string haxeCommand, string[] clsPaths, string outPath, string[] exclude) {
+        this.port = port;
+        this.haxeCommand = NormalizeHaxeCommand(haxeCommand);
+        this.clsPaths = NormalizePaths(clsPaths);
+        this.outPath = NormalizePath(outPath);
         this.outPathAbs = Path.GetFullPath(Path.Combine(HaxeBox.root, this.outPath));
         this.exclude = exclude;
 
-        startInfo = CreateBuildStartInfo();
-        serverInfo = CreateServerStartInfo();
-
-        codeWatcher = CreateCodeWatcher(this.srcPath);
+        RefreshProcessInfos();
+        codeWatchers = CreateCodeWatchers(this.clsPaths);
         StartServer();
         HaxeBox.logger.Info("Builder created");
     }
 
-    public void ApplySettings(int port, string haxeCommand, string srcPath, string outPath, string[] exclude) {
+    public void ApplySettings(int port, string haxeCommand, string[] clsPaths, string outPath, string[] exclude) {
         if (disposed)
             return;
 
-        var normalizedPort = port is > 0 and <= 65535 ? port : 6060;
-        var normalizedCommand = string.IsNullOrWhiteSpace(haxeCommand) ? "haxe" : haxeCommand.Trim();
-        var normalizedSrcPath = NormalizePath(srcPath, "code");
-        var normalizedOutPath = NormalizePath(outPath, "code/__haxe__");
+        var normalizedPort = port;
+        var normalizedCommand = NormalizeHaxeCommand(haxeCommand);
+        var normalizedClsPaths = NormalizePaths(clsPaths);
+        var normalizedOutPath = NormalizePath(outPath);
         var restartServer = this.port != normalizedPort || !string.Equals(this.haxeCommand, normalizedCommand, StringComparison.Ordinal);
-        var recreateWatcher = !string.Equals(this.srcPath, normalizedSrcPath, StringComparison.OrdinalIgnoreCase);
+        var recreateWatcher = !AreSamePaths(this.clsPaths, normalizedClsPaths);
 
         this.port = normalizedPort;
         this.haxeCommand = normalizedCommand;
-        this.srcPath = normalizedSrcPath;
+        this.clsPaths = normalizedClsPaths;
         this.outPath = normalizedOutPath;
         this.outPathAbs = Path.GetFullPath(Path.Combine(HaxeBox.root, this.outPath));
         this.exclude = exclude;
-        startInfo = CreateBuildStartInfo();
-        serverInfo = CreateServerStartInfo();
+        RefreshProcessInfos();
         if (recreateWatcher)
-            RecreateWatcher();
+            RecreateWatchers();
 
         if (restartServer)
             StartServer();
     }
 
-    string NormalizePath(string? path, string fallback) {
-        var normalized = path?.Trim() ?? "";
-        if (string.IsNullOrWhiteSpace(normalized))
-            normalized = fallback;
+    static string NormalizeHaxeCommand(string? command) =>
+        string.IsNullOrWhiteSpace(command) ? "haxe" : command.Trim();
 
+    void RefreshProcessInfos() {
+        startInfo = CreateBuildStartInfo();
+        serverInfo = CreateServerStartInfo();
+    }
+
+    string NormalizePath(string? path) {
+        var normalized = path?.Trim() ?? "";
         return normalized.Replace('\\', '/').Trim('/');
     }
 
-    Watcher CreateCodeWatcher(string relativePath) {
-        var fullPath = Path.Combine(HaxeBox.root, relativePath);
-        Directory.CreateDirectory(fullPath);
-        return new Watcher(fullPath, ["*.hx"], Queue);
+    string[] NormalizePaths(string[]? paths) {
+        var normalized = new List<string>();
+        var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in paths ?? []) {
+            var value = NormalizePath(path);
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+            if (unique.Add(value))
+                normalized.Add(value);
+        }
+        return normalized.ToArray();
     }
 
-    void RecreateWatcher() {
+    static bool AreSamePaths(string[] left, string[] right) {
+        if (ReferenceEquals(left, right))
+            return true;
+        if (left.Length != right.Length)
+            return false;
+        for (var i = 0; i < left.Length; i++)
+            if (!string.Equals(left[i], right[i], StringComparison.OrdinalIgnoreCase))
+                return false;
+        return true;
+    }
+
+    List<Watcher> CreateCodeWatchers(IEnumerable<string> relativePaths) {
+        var watchers = new List<Watcher>();
+        foreach (var relativePath in relativePaths) {
+            var fullPath = Path.Combine(HaxeBox.root, relativePath);
+            Directory.CreateDirectory(fullPath);
+            watchers.Add(new Watcher(fullPath, ["*.hx"], Queue));
+        }
+        return watchers;
+    }
+
+    void DisposeCodeWatchers() {
+        foreach (var watcher in codeWatchers)
+            watcher.Dispose();
+        codeWatchers.Clear();
+    }
+
+    void RecreateWatchers() {
         var wasEnabled = enabled;
-        codeWatcher.Dispose();
-        codeWatcher = CreateCodeWatcher(srcPath);
+        DisposeCodeWatchers();
+        codeWatchers = CreateCodeWatchers(clsPaths);
         if (wasEnabled)
-            codeWatcher.Start();
+            SetWatchersActive(true);
     }
 
-    ProcessStartInfo CreateBuildStartInfo() {
+    ProcessStartInfo CreateStartInfo(string arguments) {
         return new ProcessStartInfo {
             FileName = haxeCommand,
-            Arguments = $"--connect {port} build.hxml",
+            Arguments = arguments,
             WorkingDirectory = HaxeBox.root,
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -110,26 +146,15 @@ sealed class Builder : IDisposable {
         };
     }
 
-    ProcessStartInfo CreateServerStartInfo() {
-        return new ProcessStartInfo {
-            FileName = haxeCommand,
-            Arguments = $"--wait {port}",
-            WorkingDirectory = HaxeBox.root,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
-    }
+    ProcessStartInfo CreateBuildStartInfo() => CreateStartInfo($"--connect {port} build.hxml");
+
+    ProcessStartInfo CreateServerStartInfo() => CreateStartInfo($"--wait {port}");
 
     public void Pause() {
         if (!enabled) 
             return;
         enabled = false;
-
-        codeWatcher.Stop();
+        SetWatchersActive(false);
         HaxeBox.logger.Info("Hotload paused");
     }
 
@@ -137,8 +162,7 @@ sealed class Builder : IDisposable {
         if (enabled) 
             return;
         enabled = true;
-
-        codeWatcher.Start();
+        SetWatchersActive(true);
         HaxeBox.logger.Info("Hotload resumed");
         BuildAsync();
     }
@@ -149,7 +173,7 @@ sealed class Builder : IDisposable {
 
         timer?.Dispose();
         timer = null;
-        codeWatcher.Dispose();
+        DisposeCodeWatchers();
         StopBuildProcess();
         StopServer();
 
@@ -218,15 +242,16 @@ sealed class Builder : IDisposable {
         var resumeWatcher = enabled;
         Process? process = null;
         if (resumeWatcher)
-            codeWatcher.Stop();
+            SetWatchersActive(false);
 
         try {
             var includeIgnore = BuildHaxeArray(exclude);
-            var includeClassPaths = BuildHaxeArray([srcPath]);
+            var includeClassPaths = BuildHaxeArray(clsPaths);
             var hxml = new StringBuilder(2048);
-            hxml.AppendLine($"--cs {outPath}")
-                .AppendLine($"-cp {srcPath}")
-                .AppendLine($"-cp {HaxeBox.path}/haxe/haxebox")
+            hxml.AppendLine($"--cs {outPath}");
+            foreach (var clsPath in clsPaths)
+                hxml.AppendLine($"-cp {clsPath}");
+            hxml.AppendLine($"-cp {HaxeBox.path}/haxe/haxebox")
                 .AppendLine($"-cp {HaxeBox.path}/haxe/extern")
                 .AppendLine($"--macro include('', true, {includeIgnore}, {includeClassPaths}, true)")
                 .AppendLine("--macro HaxeBoxMacro.init()");
@@ -247,8 +272,8 @@ sealed class Builder : IDisposable {
                 hxml.AppendLine("-D WHITELIST");
             hxml.AppendLine($"-D PROJECT_PATH={HaxeBox.root}")
                 .AppendLine($"-D HAXEBOX_PATH={HaxeBox.path}")
-                .AppendLine($"-D SOURCES_PATH={srcPath}")
-                .AppendLine($"-D SOURCES_EXCL={string.Join(";", exclude)}")
+                .AppendLine($"-D CLASS_PATHS={string.Join(";", clsPaths)}")
+                .AppendLine($"-D CLASS_EXCLUDE={string.Join(";", exclude)}")
                 .AppendLine("-D no-compilation")
                 .AppendLine($"-D source-header=Generated with HaxeBox for {Game.Ident}");
             foreach (var s in HaxeBox.config.symbols)
@@ -290,7 +315,7 @@ sealed class Builder : IDisposable {
             process?.Dispose();
 
             if (!disposed && resumeWatcher && enabled)
-                codeWatcher.Start();
+                SetWatchersActive(true);
         }
         
         Toaster.RemoveCurrent();
@@ -316,6 +341,23 @@ sealed class Builder : IDisposable {
         return sb.ToString();
     }
 
+    void SetWatchersActive(bool active) {
+        foreach (var watcher in codeWatchers)
+            if (active) watcher.Start(); else watcher.Stop();
+    }
+
+    static void KillAndDispose(Process? process) {
+        if (process == null)
+            return;
+        try {
+            if (!process.HasExited)
+                process.Kill();
+        } catch {
+            // ignore: process may already be gone
+        }
+        process.Dispose();
+    }
+
     void StartServer() {
         if (disposed)
             return;
@@ -329,13 +371,7 @@ sealed class Builder : IDisposable {
         }
 
         if (disposed) {
-            try {
-                if (!p.HasExited)
-                    p.Kill();
-            } catch {
-                // ignore
-            }
-            p.Dispose();
+            KillAndDispose(p);
             return;
         }
 
@@ -360,14 +396,7 @@ sealed class Builder : IDisposable {
         if (p == null)
             return;
 
-        try {
-            if (!p.HasExited)
-                p.Kill();
-        } catch {
-            // ignore: process may already be gone
-        }
-
-        p.Dispose();
+        KillAndDispose(p);
         HaxeBox.logger.Info("Compilation server stopped");
     }
 
@@ -379,15 +408,7 @@ sealed class Builder : IDisposable {
         }
         if (p == null)
             return;
-
-        try {
-            if (!p.HasExited)
-                p.Kill();
-        } catch {
-            // ignore: process may already be gone
-        }
-
-        p.Dispose();
+        KillAndDispose(p);
     }
 
     void Queue(string path) {

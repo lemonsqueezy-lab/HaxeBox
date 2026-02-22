@@ -9,19 +9,15 @@ sealed class Watcher : IDisposable {
 
     public Watcher(string path, string[] filters, Action<string> onChange) {
         this.onChange = onChange;
-
-        if (!Directory.Exists(path))
-            Directory.CreateDirectory(path);
+        Directory.CreateDirectory(path);
 
         watcher = new FileSystemWatcher(path) {
             IncludeSubdirectories = true,
             InternalBufferSize = 64 * 1024,
-            NotifyFilter =
-                NotifyFilters.FileName |
-                NotifyFilters.LastWrite
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite
         };
 
-        foreach(var f in filters)
+        foreach (var f in filters)
             watcher.Filters.Add(f);
         watcher.Changed += OnFs;
         watcher.Created += OnFs;
@@ -34,18 +30,17 @@ sealed class Watcher : IDisposable {
 
     public void Stop() => watcher.EnableRaisingEvents = false;
 
-    private void OnFs(object sender, FileSystemEventArgs e) {
-        onChange(e.FullPath);
-    }
+    private void OnFs(object sender, FileSystemEventArgs e) => onChange(e.FullPath);
 
     private void OnError(object sender, ErrorEventArgs e) {
-        if (e.GetException() is InternalBufferOverflowException) {
+        var ex = e.GetException();
+        if (ex is InternalBufferOverflowException) {
             HaxeBox.logger.Warning("Code watcher overflow, scheduling full rebuild");
             onChange(string.Empty);
             return;
         }
 
-        HaxeBox.logger.Error("Code watcher error: " + e.GetException().Message);
+        HaxeBox.logger.Error("Code watcher error: " + ex.Message);
     }
 
     public void Dispose() {

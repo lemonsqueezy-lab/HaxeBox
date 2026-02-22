@@ -51,7 +51,8 @@ static class ExternGen
 
     private static bool TryMapPrimitive(string csType, out string hxType)
     {
-        if (PrimitiveTypeMap.TryGetValue(csType, out var v)) { hxType = v; return true; }
+        if (PrimitiveTypeMap.TryGetValue(csType, out hxType))
+            return true;
         hxType = "";
         return false;
     }
@@ -60,7 +61,7 @@ static class ExternGen
     {
         public readonly string Name;
         public readonly string Lower;
-        public Root(string name) { Name = name; Lower = name.ToLowerInvariant(); }
+        public Root(string name) => (Name, Lower) = (name, name.ToLowerInvariant());
     }
 
     private sealed class DocStore
@@ -242,7 +243,7 @@ static class ExternGen
     {
         public readonly string Name;
         public readonly string Type;
-        public ApiParam(string name, string type) { Name = name; Type = type; }
+        public ApiParam(string name, string type) => (Name, Type) = (name, type);
     }
 
     private sealed class StubType

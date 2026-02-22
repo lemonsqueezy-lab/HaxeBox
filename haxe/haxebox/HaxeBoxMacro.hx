@@ -215,27 +215,38 @@ class HaxeBoxMacro {
 
 	public static function init() {
 		Compiler.registerCustomMetadata({metadata: ":ui.attr", doc: "Make field available as a node attribute"});
-		Compiler.registerCustomMetadata({metadata: ":ui.track", doc: "Track expressions for a @:ui.markup function to update UI"});
 		Compiler.registerCustomMetadata({metadata: ":ui.markup", doc: "Build UI from markup expression"});
+		Compiler.registerCustomMetadata({metadata: ":sync", doc: "Track expressions for a @:ui.markup function to update UI"});
+		Compiler.registerCustomMetadata({metadata: ":test", doc: "Add test to UI node"});
+		Compiler.registerCustomMetadata({metadata: ":content", doc: "Add content to UI node"});
 
 		var project = Context.definedValue("PROJECT_PATH");
 		var haxebox = Context.definedValue("HAXEBOX_PATH");
-		var srcPath = Context.definedValue("SOURCES_PATH");
 		var outPath = Compiler.getOutput();
-		var exclude = Context.definedValue("SOURCES_EXCL")?.split(";") ?? [];
+		var srcPaths = (Context.definedValue("CLASS_PATHS") ?? "").split(";");
+		var exclude = (Context.definedValue("CLASS_EXCLUDE") ?? "").split(";");
 		exclude.push(Path.withoutDirectory(outPath));
 
 		if (project == null || haxebox == null)
 			Context.fatalError("HaxeBox and project paths are not defined", Context.currentPos());
 
-		var src = resolvePath(project, srcPath, "code");
-		if (!FileSystem.exists(src))
-			return;
+		var modules:Map<String, Bool> = [];
+		for (sourcePath in srcPaths) {
+			var src = resolvePath(project, sourcePath, "code");
+			if (!FileSystem.exists(src))
+				continue;
 
-		for (f in FileSystem.readDirectory(src)) {
-			var full = Path.join([src, f]);
-			if (!exclude.contains(f) && (Path.extension(f) == "hx" || FileSystem.isDirectory(full)))
-				Compiler.addGlobalMetadata(Path.withoutExtension(f), "@:build(HaxeBoxMacro.build())");
+			for (f in FileSystem.readDirectory(src)) {
+				var full = Path.join([src, f]);
+				if (exclude.contains(f) || (Path.extension(f) != "hx" && !FileSystem.isDirectory(full)))
+					continue;
+
+				var mod = Path.withoutExtension(f);
+				if (modules.exists(mod))
+					continue;
+				modules.set(mod, true);
+				Compiler.addGlobalMetadata(mod, "@:build(HaxeBoxMacro.build())");
+			}
 		}
 
 		#if WHITELIST
@@ -272,10 +283,6 @@ class HaxeBoxMacro {
 				patchWhitelist(srcPath, tgtPath);
 				continue;
 			}
-
-			var rel = Path.normalize(tgtPath).replace("\\", "/");
-			if (rel.endsWith("/cs/internal/FieldLookup.cs"))
-				continue;
 			File.copy(srcPath, tgtPath);
 		}
 	}
@@ -288,11 +295,7 @@ class HaxeBoxMacro {
 		if (cls == null)
 			return fields;
 
-		var clsModule = cls.module;
-		var dot = clsModule.lastIndexOf(".");
-		var shortName = dot == -1 ? clsModule : clsModule.substr(dot + 1);
-		if (cls.name != shortName)
-			clsModule += "." + cls.name;
+		var clsModule = getNativeClassPath(cls);
 
 		var panelType = getPanelType(cls);
 
@@ -312,33 +315,33 @@ class HaxeBoxMacro {
 			cls.meta.remove(":native");
 		cls.meta.add(":native", [macro $v{clsModule}], cls.pos);
 		cls.meta.add(":nativeGen", [], cls.pos);
-
 		for (m in cls.meta.get())
-			if (!patchMeta(m))
-				switch m.name {
-					case ":ui.track":
-						for (p in m.params ?? [])
-							tracks.push(p);
-					case ":ui.markup":
-						for (p in m.params ?? [])
-							markups.push(p);
-					case ":ui.stylesheet":
-						for (p in m.params ?? [])
-							stylesheets.push(p);
-					default:
-				}
+			patchMeta(m);
 
 		for (i in 0...fields.length) {
 			var field = fields[i];
+
 			var isAttr = false;
+			var isMarkup = false;
+
 			for (m in field.meta ?? [])
-				if (!patchMeta(m) && m.name == ":ui.attr")
-					isAttr = true;
+				switch m.name {
+					case ":ui.attr":
+						isAttr = true;
+					case ":ui.markup":
+						isMarkup = true;
+						for (p in m.params ?? [])
+							stylesheets.push(p);
+					default:
+						patchMeta(m);
+				}
 
 			switch field.kind {
 				case FFun(f):
 					if (isAttr)
 						Context.warning("Functions can't be UI attributes", field.pos);
+					if (isMarkup && f.expr != null)
+						markups.push(f.expr);
 					switch field.name {
 						case "BuildRenderTree":
 							builder = f;
@@ -354,6 +357,8 @@ class HaxeBoxMacro {
 						default:
 					}
 				default:
+					if (isMarkup)
+						Context.warning("Variables can't be UI markups", field.pos);
 					switch field.kind {
 						case FProp(get, set, t, e):
 							isAttr = isAttr && !buildProp(field, get, set, t, e, fields);
@@ -372,24 +377,21 @@ class HaxeBoxMacro {
 			}
 		}
 
-		if (panelType == None) {
-			if (tracks.length + markups.length + stylesheets.length > 0)
+		if (markups.length > 0) {
+			if (panelType == None)
 				Context.warning("ui.* metadata is ignored because class is not Panel/PanelComponent", cls.pos);
-			return fields;
+			else {
+				var markupExpr = buildMarkups(markups, builderRef, fields, tracks);
+				if (builder != null)
+					builder.expr = builder.expr == null ? markupExpr : macro {
+						${builder.expr};
+						$markupExpr;
+					};
+				buildTracks(tracks, hashBuilder, fields);
+				buildChecksum(markups, checksumBuilder, fields, panelType, clsModule);
+				buildStyleSheets(stylesheets, constructor, fields, panelType);
+			}
 		}
-
-		#if (display_details != 1)
-		buildStyleSheets(stylesheets, constructor, fields, panelType);
-		buildTracks(tracks, hashBuilder, fields);
-		buildChecksum(markups, checksumBuilder, fields, panelType, clsModule);
-
-		var markupExpr = buildMarkups(markups, builderRef, fields);
-		if (builder != null)
-			builder.expr = builder.expr == null ? markupExpr : macro {
-				${builder.expr};
-				$markupExpr;
-			};
-		#end
 
 		return fields;
 	}
@@ -416,6 +418,12 @@ class HaxeBoxMacro {
 		});
 	}
 
+	static inline function getNativeClassPath(cls:ClassType):String {
+		if (cls.pack == null || cls.pack.length == 0)
+			return cls.name;
+		return cls.pack.join(".") + "." + cls.name;
+	}
+
 	static function getPanelType(cls:ClassType):PanelType {
 		return switch cls.module {
 			case "sandbox.PanelComponent": PanelComponent;
@@ -435,9 +443,7 @@ class HaxeBoxMacro {
 				})
 			];
 			m.name = ":meta";
-			return true;
 		}
-		return false;
 	}
 
 	static function buildStyleSheets(stylesheets:Array<Expr>, existing:Function, fields:Array<Field>, panelType:PanelType) {
@@ -580,7 +586,7 @@ class HaxeBoxMacro {
 		});
 	}
 
-	static function buildMarkups(markups:Array<Expr>, builderRef:Expr, fields:Array<Field>):Expr {
+	static function buildMarkups(markups:Array<Expr>, builderRef:Expr, fields:Array<Field>, tracks:Array<Expr>):Expr {
 		if (markups.length == 0)
 			return macro {};
 
@@ -591,7 +597,7 @@ class HaxeBoxMacro {
 		var seq:SeqState = {value: 0};
 		var exprs:Array<Expr> = [macro var __b = cast($builderRef, sandbox.ui.PanelRenderTreeBuilder)];
 		for (m in markups)
-			exprs.push(buildMarkup(m, fields, seq));
+			exprs.push(buildMarkup(m, fields, seq, tracks));
 
 		var body = macro $b{exprs};
 		if (pushBuilder) {
@@ -612,32 +618,35 @@ class HaxeBoxMacro {
 		return body;
 	}
 
-	static function buildMarkup(expr:Null<Expr>, fields:Array<Field>, seq:SeqState):Null<Expr> {
+	static function buildMarkup(expr:Null<Expr>, fields:Array<Field>, seq:SeqState, tracks:Array<Expr>):Null<Expr> {
 		if (expr == null || expr.expr == null)
 			return expr;
 
 		return {
 			expr: switch expr.expr {
 				case EBlock(exprs):
-					EBlock(exprs.map(e -> buildMarkup(e, fields, seq)));
+					EBlock(exprs.map(e -> buildMarkup(e, fields, seq, tracks)));
 				case EIf(econd, eif, eelse):
-					EIf(econd, buildMarkup(eif, fields, seq), buildMarkup(eelse, fields, seq));
+					EIf(econd, buildMarkup(eif, fields, seq, tracks), buildMarkup(eelse, fields, seq, tracks));
 				case EFor(it, e):
-					EFor(it, buildMarkup(e, fields, seq));
+					EFor(it, buildMarkup(e, fields, seq, tracks));
 				case EWhile(econd, e, normalWhile):
-					EWhile(econd, buildMarkup(e, fields, seq), normalWhile);
+					EWhile(econd, buildMarkup(e, fields, seq, tracks), normalWhile);
 				case ESwitch(e, cases, edef):
 					ESwitch(e, cases.map(c -> {
 						values: c.values,
 						guard: c.guard,
-						expr: buildMarkup(c.expr, fields, seq)
-					}), buildMarkup(edef, fields, seq));
+						expr: buildMarkup(c.expr, fields, seq, tracks)
+					}), buildMarkup(edef, fields, seq, tracks));
 				case EConst(_), EField(_, _), EArray(_, _):
 					(macro __b.AddContent(${nextSeqExpr(seq)}, Std.string($expr))).expr;
+				case EMeta(m, e) if (m.name == ":sync"):
+					tracks.push(e);
+					buildMarkup(e, fields, seq, tracks).expr;
 				case EMeta(m, e) if (m.name == ":text" || m.name == ":content"):
 					(macro __b.AddContent(${nextSeqExpr(seq)}, Std.string($e))).expr;
 				case EMeta(m, e) if (!m.name.startsWith(":")):
-					buildNode(m, e, fields, seq);
+					buildNode(m, e, fields, seq, tracks);
 				default:
 					expr.expr;
 			},
@@ -656,7 +665,7 @@ class HaxeBoxMacro {
 		return name;
 	}
 
-	static function buildNode(meta:MetadataEntry, expr:Expr, fields:Array<Field>, seq:SeqState) {
+	static function buildNode(meta:MetadataEntry, expr:Expr, fields:Array<Field>, seq:SeqState, tracks:Array<Expr>) {
 		if (meta.name == "style")
 			return (macro __b.AddStyleDefinitions(${nextSeqExpr(seq)}, $expr)).expr;
 
@@ -673,7 +682,7 @@ class HaxeBoxMacro {
 		elExprs.push(macro untyped __cs__($v{'__b.OpenElement<global::$native>($openSeq)'}));
 		for (p in meta.params ?? [])
 			buildAttr(elExprs, p, className, fields, seq);
-		var child = buildMarkup(expr, fields, seq);
+		var child = buildMarkup(expr, fields, seq, tracks);
 		if (child != null)
 			elExprs.push(child);
 		elExprs.push(macro __b.CloseElement());
