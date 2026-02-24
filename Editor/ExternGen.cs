@@ -1096,7 +1096,7 @@ static class ExternGen
         }
 
         if (csType.EndsWith("[]", StringComparison.Ordinal))
-            return cache[csType] = "Array<" + MapTypeInternal(csType.Substring(0, csType.Length - 2), roots, primary, knownGlobal, true) + ">";
+            return cache[csType] = "cs.NativeArray<" + MapTypeInternal(csType.Substring(0, csType.Length - 2), roots, primary, knownGlobal, true) + ">";
 
         if (csType.StartsWith("System.Nullable<", StringComparison.Ordinal) && csType.EndsWith(">", StringComparison.Ordinal))
         {

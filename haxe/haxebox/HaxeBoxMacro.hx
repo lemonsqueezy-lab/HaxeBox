@@ -5,13 +5,13 @@ import haxe.macro.Type.ClassType;
 using StringTools;
 
 #if macro
-import haxe.crypto.Md5;
+import sys.FileSystem;
+import sys.io.File;
 import haxe.io.Path;
+import haxe.crypto.Md5;
 import haxe.macro.Compiler;
 import haxe.macro.Context;
 import haxe.macro.Expr;
-import sys.FileSystem;
-import sys.io.File;
 
 using haxe.macro.ExprTools;
 using haxe.macro.TypeTools;
@@ -216,8 +216,7 @@ class HaxeBoxMacro {
 	public static function init() {
 		Compiler.registerCustomMetadata({metadata: ":ui.attr", doc: "Make field available as a node attribute"});
 		Compiler.registerCustomMetadata({metadata: ":ui.markup", doc: "Build UI from markup expression"});
-		Compiler.registerCustomMetadata({metadata: ":sync", doc: "Track expressions for a @:ui.markup function to update UI"});
-		Compiler.registerCustomMetadata({metadata: ":test", doc: "Add test to UI node"});
+		Compiler.registerCustomMetadata({metadata: ":text", doc: "Add text to UI node"});
 		Compiler.registerCustomMetadata({metadata: ":content", doc: "Add content to UI node"});
 
 		var project = Context.definedValue("PROJECT_PATH");
@@ -301,6 +300,7 @@ class HaxeBoxMacro {
 
 		var tracks:Array<Expr> = [];
 		var markups:Array<Expr> = [];
+		var markupFuncs:Array<Field> = [];
 		var stylesheets:Array<Expr> = [];
 
 		var builder:Function = null;
@@ -314,7 +314,9 @@ class HaxeBoxMacro {
 		if (cls.meta.has(":native"))
 			cls.meta.remove(":native");
 		cls.meta.add(":native", [macro $v{clsModule}], cls.pos);
+		#if (display_details != 1)
 		cls.meta.add(":nativeGen", [], cls.pos);
+		#end
 		for (m in cls.meta.get())
 			patchMeta(m);
 
@@ -323,6 +325,7 @@ class HaxeBoxMacro {
 
 			var isAttr = false;
 			var isMarkup = false;
+			var isAlias = false;
 
 			for (m in field.meta ?? [])
 				switch m.name {
@@ -330,8 +333,8 @@ class HaxeBoxMacro {
 						isAttr = true;
 					case ":ui.markup":
 						isMarkup = true;
-						for (p in m.params ?? [])
-							stylesheets.push(p);
+					case "alias":
+						isAlias = true;
 					default:
 						patchMeta(m);
 				}
@@ -340,8 +343,47 @@ class HaxeBoxMacro {
 				case FFun(f):
 					if (isAttr)
 						Context.warning("Functions can't be UI attributes", field.pos);
-					if (isMarkup && f.expr != null)
+					if (isAlias)
+						Context.warning("Functions can't be aliases", field.pos);
+					if (isMarkup && f.expr != null) {
 						markups.push(f.expr);
+						#if (display_details != 1)
+						for (f in markupFuncs)
+							fields.remove(f);
+						#end
+						if (f.args?.length > 0) {
+							for (a in f.args)
+								if (a.value != null)
+									switch a.name {
+										case "track": {
+												switch a.value.expr {
+													case EConst(CIdent(s)):
+														tracks.push(a.value);
+													case EArrayDecl(values):
+														tracks = tracks.concat(values);
+													default: Context.warning("Invalid expression", a.value.pos);
+												}
+												a.value = null;
+											}
+										case "stylesheet": switch a.value.expr {
+												case EConst(CString(s)):
+													stylesheets.push(a.value);
+												default: Context.warning("Invalid expression", a.value.pos);
+											}
+										case "stylesheets": switch a.value.expr {
+												case EArrayDecl(values):
+													for (v in values)
+														switch v.expr {
+															case EConst(CString(s)):
+																stylesheets.push(v);
+															default: Context.warning("Invalid expression", a.value.pos);
+														}
+												default: Context.warning("Invalid expression", a.value.pos);
+											}
+										default:
+									}
+						}
+					}
 					switch field.name {
 						case "BuildRenderTree":
 							builder = f;
@@ -362,6 +404,9 @@ class HaxeBoxMacro {
 					switch field.kind {
 						case FProp(get, set, t, e):
 							isAttr = isAttr && !buildProp(field, get, set, t, e, fields);
+							if (isAlias) Context.warning("Properties can't be aliases", field.pos);
+						case FVar(t, e):
+							if (isAlias) buildAlias(fields, field, t, e);
 						default:
 					}
 					if (isAttr) {
@@ -377,11 +422,15 @@ class HaxeBoxMacro {
 			}
 		}
 
-		if (markups.length > 0) {
+		if (markups.length + tracks.length + stylesheets.length > 0) {
 			if (panelType == None)
 				Context.warning("ui.* metadata is ignored because class is not Panel/PanelComponent", cls.pos);
 			else {
-				var markupExpr = buildMarkups(markups, builderRef, fields, tracks);
+				#if (display_details != 1)
+				for (f in markupFuncs)
+					fields.remove(f);
+				#end
+				var markupExpr = buildMarkups(markups, builderRef, fields);
 				if (builder != null)
 					builder.expr = builder.expr == null ? markupExpr : macro {
 						${builder.expr};
@@ -394,6 +443,28 @@ class HaxeBoxMacro {
 		}
 
 		return fields;
+	}
+
+	static function buildAlias(fields:Array<Field>, field:Field, type:ComplexType, expr:Expr) {
+		field.kind = FProp("get", "set", type, null);
+		fields.push({
+			name: 'get_${field.name}',
+			access: [APrivate, AInline],
+			kind: FFun({
+				args: [],
+				expr: macro return $expr
+			}),
+			pos: Context.currentPos()
+		});
+		fields.push({
+			name: 'set_${field.name}',
+			access: [APrivate, AInline],
+			kind: FFun({
+				args: [{name: "__value__"}],
+				expr: macro return $expr = __value__
+			}),
+			pos: Context.currentPos()
+		});
 	}
 
 	static function buildChecksum(markups:Array<Expr>, checksumBuilder:Function, fields:Array<Field>, panelType:PanelType, clsModule:String) {
@@ -586,7 +657,7 @@ class HaxeBoxMacro {
 		});
 	}
 
-	static function buildMarkups(markups:Array<Expr>, builderRef:Expr, fields:Array<Field>, tracks:Array<Expr>):Expr {
+	static function buildMarkups(markups:Array<Expr>, builderRef:Expr, fields:Array<Field>):Expr {
 		if (markups.length == 0)
 			return macro {};
 
@@ -597,7 +668,7 @@ class HaxeBoxMacro {
 		var seq:SeqState = {value: 0};
 		var exprs:Array<Expr> = [macro var __b = cast($builderRef, sandbox.ui.PanelRenderTreeBuilder)];
 		for (m in markups)
-			exprs.push(buildMarkup(m, fields, seq, tracks));
+			exprs.push(buildMarkup(m, fields, seq));
 
 		var body = macro $b{exprs};
 		if (pushBuilder) {
@@ -618,35 +689,32 @@ class HaxeBoxMacro {
 		return body;
 	}
 
-	static function buildMarkup(expr:Null<Expr>, fields:Array<Field>, seq:SeqState, tracks:Array<Expr>):Null<Expr> {
+	static function buildMarkup(expr:Null<Expr>, fields:Array<Field>, seq:SeqState):Null<Expr> {
 		if (expr == null || expr.expr == null)
 			return expr;
 
 		return {
 			expr: switch expr.expr {
 				case EBlock(exprs):
-					EBlock(exprs.map(e -> buildMarkup(e, fields, seq, tracks)));
+					EBlock(exprs.map(e -> buildMarkup(e, fields, seq)));
 				case EIf(econd, eif, eelse):
-					EIf(econd, buildMarkup(eif, fields, seq, tracks), buildMarkup(eelse, fields, seq, tracks));
+					EIf(econd, buildMarkup(eif, fields, seq), buildMarkup(eelse, fields, seq));
 				case EFor(it, e):
-					EFor(it, buildMarkup(e, fields, seq, tracks));
+					EFor(it, buildMarkup(e, fields, seq));
 				case EWhile(econd, e, normalWhile):
-					EWhile(econd, buildMarkup(e, fields, seq, tracks), normalWhile);
+					EWhile(econd, buildMarkup(e, fields, seq), normalWhile);
 				case ESwitch(e, cases, edef):
 					ESwitch(e, cases.map(c -> {
 						values: c.values,
 						guard: c.guard,
-						expr: buildMarkup(c.expr, fields, seq, tracks)
-					}), buildMarkup(edef, fields, seq, tracks));
+						expr: buildMarkup(c.expr, fields, seq)
+					}), buildMarkup(edef, fields, seq));
 				case EConst(_), EField(_, _), EArray(_, _):
 					(macro __b.AddContent(${nextSeqExpr(seq)}, Std.string($expr))).expr;
-				case EMeta(m, e) if (m.name == ":sync"):
-					tracks.push(e);
-					buildMarkup(e, fields, seq, tracks).expr;
 				case EMeta(m, e) if (m.name == ":text" || m.name == ":content"):
 					(macro __b.AddContent(${nextSeqExpr(seq)}, Std.string($e))).expr;
 				case EMeta(m, e) if (!m.name.startsWith(":")):
-					buildNode(m, e, fields, seq, tracks);
+					buildNode(m, e, fields, seq);
 				default:
 					expr.expr;
 			},
@@ -665,7 +733,7 @@ class HaxeBoxMacro {
 		return name;
 	}
 
-	static function buildNode(meta:MetadataEntry, expr:Expr, fields:Array<Field>, seq:SeqState, tracks:Array<Expr>) {
+	static function buildNode(meta:MetadataEntry, expr:Expr, fields:Array<Field>, seq:SeqState) {
 		if (meta.name == "style")
 			return (macro __b.AddStyleDefinitions(${nextSeqExpr(seq)}, $expr)).expr;
 
@@ -682,7 +750,7 @@ class HaxeBoxMacro {
 		elExprs.push(macro untyped __cs__($v{'__b.OpenElement<global::$native>($openSeq)'}));
 		for (p in meta.params ?? [])
 			buildAttr(elExprs, p, className, fields, seq);
-		var child = buildMarkup(expr, fields, seq, tracks);
+		var child = buildMarkup(expr, fields, seq);
 		if (child != null)
 			elExprs.push(child);
 		elExprs.push(macro __b.CloseElement());
