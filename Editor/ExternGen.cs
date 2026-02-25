@@ -51,8 +51,12 @@ static class ExternGen
 
     private static bool TryMapPrimitive(string csType, out string hxType)
     {
-        if (PrimitiveTypeMap.TryGetValue(csType, out hxType))
+        if (PrimitiveTypeMap.TryGetValue(csType, out var mapped) && mapped != null)
+        {
+            hxType = mapped;
             return true;
+        }
+
         hxType = "";
         return false;
     }
