@@ -6,7 +6,6 @@ s&box package: https://sbox.game/lemonsqueezy/haxebox
 
 ## What is included
 
-- Sandbox API support with automatic extern type generation.
 - Sandbox attribute support.
 - Declarative UI markup directly in Haxe.
 - Automatic `haxe` build with toast notifications.
@@ -37,7 +36,6 @@ You can change settings in s&box editor preferences (`Edit -> Preferences -> Hax
 - `Exclude` - exclusions for `include(...)` (separators: `;` or `,`).
 
 Buttons:
-- `Generate Externs` - generates extern types from runtime.
 - `Clear Output` - deletes generated HaxeBox files.
 - `Save` - saves settings.
 
@@ -120,5 +118,3 @@ For convenience, you can use shortcuts:
   - build was started with wrong `build.hxml` or without defines added by plugin.
 - `ui.* metadata is ignored because class is not Panel/PanelComponent`:
   - base class must be `sandbox.ui.Panel` or `sandbox.PanelComponent`.
-- Empty/outdated extern type database:
-  - click `Generate Externs` and rebuild project.

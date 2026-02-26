@@ -248,13 +248,13 @@ sealed class Builder : IDisposable {
             var includeIgnore = BuildHaxeArray(exclude);
             var includeClassPaths = BuildHaxeArray(clsPaths);
             var hxml = new StringBuilder(2048);
-            hxml.AppendLine($"--cs {outPath}");
+            hxml.AppendLine($"--cs {outPath}")
+                .AppendLine("-D net-ver=50");
             foreach (var clsPath in clsPaths)
                 hxml.AppendLine($"-cp {clsPath}");
             hxml.AppendLine($"-cp {HaxeBox.path}/haxe/haxebox")
-                .AppendLine($"-cp {HaxeBox.path}/haxe/extern")
                 .AppendLine($"--macro include('', true, {includeIgnore}, {includeClassPaths}, true)")
-                .AppendLine("--macro HaxeBoxMacro.init()");
+                .AppendLine("--macro HaxeBoxBoot.init()");
             foreach (var library in HaxeBox.GetLibraries())
                 hxml.AppendLine("-lib " + library);
 

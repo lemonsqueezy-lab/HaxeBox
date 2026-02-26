@@ -170,9 +170,6 @@ public static class HaxeBox {
             var buttonsRow = Layout.AddRow();
             buttonsRow.Spacing = 8;
 
-            var gen = buttonsRow.Add(new Button("Generate Externs", "construction"));
-            gen.Clicked = GenerateExterns;
-
             var clear = buttonsRow.Add(new Button("Clear Output", "delete"));
             clear.Clicked = ClearOutput;
 
@@ -438,10 +435,6 @@ public static class HaxeBox {
             if (!EnsureInitialized())
                 throw new InvalidOperationException("Project.Current is null");
 
-            var externPath = Path.Combine(path, "haxe", "extern");
-            if (!Directory.Exists(externPath) || Directory.GetFiles(externPath).Length == 0)
-                GenerateExterns();
-
             if (settings.HotloadEnabled)
                 EnsureBuilder().Resume();
 
@@ -493,18 +486,6 @@ public static class HaxeBox {
 
             EnsureBuilder().Build();
         }
-    }
-
-    private static void GenerateExterns() {
-        ThreadPool.QueueUserWorkItem(_ => {
-            Toaster.CompileStarted("Haxe", "Generating extern types...");
-            try {
-                ExternGen.GenerateFromRuntime(["Sandbox"]);
-                Toaster.CompileSucceeded("Haxe", "Extern types generated");
-            } catch (Exception e) {
-                Toaster.CompileFailed("Haxe", [e.Message], "Failed to generate extern types");
-            }
-        });
     }
 
     private static void ClearOutput() {
