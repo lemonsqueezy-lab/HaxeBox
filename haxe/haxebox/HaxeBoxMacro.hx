@@ -1,14 +1,21 @@
 ﻿package;
 
+import haxe.macro.Type.ClassType;
+
+using StringTools;
+
 #if macro
+import sys.FileSystem;
+import sys.io.File;
+import haxe.io.Path;
 import haxe.crypto.Md5;
-import haxe.macro.Expr;
-import haxe.macro.Type;
-import haxe.macro.Context;
 import haxe.macro.Compiler;
+import haxe.macro.Context;
+import haxe.macro.Expr;
 
 using haxe.macro.ExprTools;
 using haxe.macro.TypeTools;
+#end
 
 enum PanelType {
 	None;
@@ -16,6 +23,7 @@ enum PanelType {
 	PanelComponent;
 }
 
+#if macro
 private typedef SeqState = {
 	var value:Int;
 }
@@ -204,6 +212,80 @@ class HaxeBoxMacro {
 
 	static inline function nextSeqExpr(seq:SeqState):Expr
 		return macro $v{seq.value++};
+
+	public static function init() {
+		Compiler.registerCustomMetadata({metadata: ":ui.attr", doc: "Make field available as a node attribute"});
+		Compiler.registerCustomMetadata({metadata: ":ui.markup", doc: "Build UI from markup expression"});
+		Compiler.registerCustomMetadata({metadata: ":text", doc: "Add text to UI node"});
+		Compiler.registerCustomMetadata({metadata: ":content", doc: "Add content to UI node"});
+
+		var project = Context.definedValue("PROJECT_PATH");
+		var haxebox = Context.definedValue("HAXEBOX_PATH");
+		var outPath = Compiler.getOutput();
+		var srcPaths = (Context.definedValue("CLASS_PATHS") ?? "").split(";");
+		var exclude = (Context.definedValue("CLASS_EXCLUDE") ?? "").split(";");
+		exclude.push(Path.withoutDirectory(outPath));
+
+		if (project == null || haxebox == null)
+			Context.fatalError("HaxeBox and project paths are not defined", Context.currentPos());
+
+		var modules:Map<String, Bool> = [];
+		for (sourcePath in srcPaths) {
+			var src = resolvePath(project, sourcePath, "code");
+			if (!FileSystem.exists(src))
+				continue;
+
+			for (f in FileSystem.readDirectory(src)) {
+				var full = Path.join([src, f]);
+				if (exclude.contains(f) || (Path.extension(f) != "hx" && !FileSystem.isDirectory(full)))
+					continue;
+
+				var mod = Path.withoutExtension(f);
+				if (modules.exists(mod))
+					continue;
+				modules.set(mod, true);
+				Compiler.addGlobalMetadata(mod, "@:build(HaxeBoxMacro.build())");
+			}
+		}
+
+		#if WHITELIST
+		Context.onAfterGenerate(() -> {
+			try {
+				var out = resolvePath(project, outPath, "code/__haxe__");
+				patchWhitelist(Path.join([haxebox, "haxe", "src"]), Path.join([out, "src"]));
+			} catch (e) {
+				Context.warning("Failed to patch whitelist: " + e.message, Context.currentPos());
+			}
+		});
+		#end
+	}
+
+	static function resolvePath(project:String, path:Null<String>, fallback:String):String {
+		var v = (path == null ? fallback : path.trim());
+		if (v.length == 0)
+			v = fallback;
+		v = v.replace("\\", "/");
+		return Path.isAbsolute(v) ? v : Path.join([project, v]);
+	}
+
+	#if WHITELIST
+	static function patchWhitelist(src:String, tgt:String) {
+		if (!FileSystem.exists(src) || !FileSystem.exists(tgt))
+			return;
+
+		for (name in FileSystem.readDirectory(src)) {
+			var srcPath = Path.join([src, name]);
+			var tgtPath = Path.join([tgt, name]);
+			if (!FileSystem.exists(tgtPath))
+				continue;
+			if (FileSystem.isDirectory(srcPath)) {
+				patchWhitelist(srcPath, tgtPath);
+				continue;
+			}
+			File.copy(srcPath, tgtPath);
+		}
+	}
+	#end
 
 	public static function build():Array<Field> {
 		var fields = Context.getBuildFields() ?? [];
